@@ -438,7 +438,7 @@ tr.best-option-row td:first-child {
 
 .landed-cost-cell {
   font-weight: 700;
-  color: #FFF;
+  color: var(--text-primary);
 }
 
 .margin-cell {

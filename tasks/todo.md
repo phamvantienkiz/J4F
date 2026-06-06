@@ -73,3 +73,7 @@
 - [x] 37. Refine dynamic color gradients and buttons in CSS files for high-contrast Light Mode. → verify: Gradients (welcome text h2, primary CTA buttons) remain clear and readable on light backgrounds.
 
 - [x] 38. Resolve style conflicts on tables, inputs, chips, and overlays for Light Mode. → verify: Table recommended highlights, active state indicators, overlay backdrops, and select options display with clear, accessible contrast (meeting WCAG standards).
+
+- [x] 39. Align brand primary color token to official BurgerPrints orange (#f26522). → verify: Verify variables `--primary` and `--primary-hsl` use the exact brand HSL value `18, 92%, 54%`.
+
+- [x] 40. Correct scrollbar and Landed Cost text invisibility in Light Mode. → verify: Bảng so sánh Landed Cost has legible dark text color (var(--text-primary)), and scrollbars adapt to light backgrounds without blending in.
