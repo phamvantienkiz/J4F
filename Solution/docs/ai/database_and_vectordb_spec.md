@@ -143,82 +143,80 @@ CREATE TABLE order_history (
 
 ---
 
-## 2. Thiết Kế Vector Database Cho Tìm Kiếm Ngữ Nghĩa (Catalog RAG)
+## 2. Thiết Kế Vector Database Cho Tìm Kiếm Hội Thoại (Semantic Memory DB)
 
-### 2.1. Tại sao cần Vector Database trong MVP?
-Mặc dù BurgerPrints cung cấp API tìm kiếm từ khóa tĩnh, Seller thường truy vấn danh mục bằng ngôn ngữ tự nhiên với nhiều từ đồng nghĩa hoặc không chuẩn xác (ví dụ: Seller gõ *"áo thun mùa hè thoáng mát"* hoặc *"cốc uống trà size lớn"*). 
-Vector Database giúp:
-*   Tìm đúng sản phẩm dựa trên ngữ cảnh và thuộc tính mô tả.
-*   Ánh xạ chính xác các cụm từ tiếng Việt không dấu, viết tắt sang SKU danh mục tiếng Anh chuẩn của BurgerPrints.
+Để đảm bảo thông tin xưởng in, báo giá và chi tiết SKU của sản phẩm luôn cập nhật tức thời và chính xác 100% theo ngày/giờ, hệ thống **không lưu trữ dữ liệu danh mục (catalog) sản phẩm trong Vector Database hay Database quan hệ**. Toàn bộ catalog và báo giá sẽ được lấy trực tiếp thông qua BurgerPrints API v2.0 tại thời điểm người dùng truy vấn.
+
+Thay vào đó, Vector Database được sử dụng để lập chỉ mục **Lịch sử hội thoại & tin nhắn (Semantic Chat Memory)** của Seller. Điều này cho phép Agent thực hiện tìm kiếm ngữ nghĩa trên các cuộc trò chuyện trước đó để truy xuất các tùy chọn ưu tiên hoặc ngữ cảnh mà người dùng không nhắc lại.
+
+### 2.1. Tại sao cần Vector Database cho Lịch sử chat trong MVP?
+*   **Tránh hỏi lặp lại:** Khi Seller đã cung cấp các thông tin thiết lập/sở thích ở các lượt chat trước hoặc phiên chat cũ, Vector DB giúp Agent tự động recall (gợi lại) thông tin cũ bằng tìm kiếm độ tương đồng ngữ nghĩa.
+*   **Tìm kiếm thông minh:** Cho phép Seller tra cứu nhanh các quyết định cũ: *"Tuần trước tôi có hỏi về loại áo thun xưởng Mỹ giá dưới $12, đó là SKU nào nhỉ?"* - hệ thống sẽ tự quét Vector DB để lấy ra tin nhắn trả lời cũ của Agent.
 
 ### 2.2. Lựa chọn Công nghệ
-*   **Vector DB Engine:** **ChromaDB** (local) cho MVP vì cài đặt siêu tốc bằng Python, lưu trữ dạng file cục bộ không cần cài đặt hạ tầng phức tạp. Đối với PostgreSQL, có thể sử dụng extension `pgvector`.
-*   **Embedding Model:** `text-embedding-004` của Google (thông qua Gemini API SDK) để tối ưu hóa hiệu năng, đồng bộ với bộ tài nguyên ngôn ngữ lớn của Gemini. Chiều dài Vector (dimensions): **768**.
+*   **Vector DB Engine:** **ChromaDB** (ưu tiên hàng đầu) hoặc **FAISS**. ChromaDB đặc biệt phù hợp cho SQLite vì nó siêu nhẹ, chạy trực tiếp dạng tiến trình nhúng (embedded database) và lưu trữ thành các file cục bộ trong thư mục `ai/data/chromadb/`.
+*   **Embedding Model:** `text-embedding-004` (Gemini API) với độ dài vector **768** dimensions.
 
-### 2.3. Quy trình Tiền xử lý & Chunking dữ liệu Catalog (Indexing Pipeline)
-Dữ liệu catalog sản phẩm từ BurgerPrints API (đã được cào/cache định kỳ) sẽ được chuyển đổi thành các văn bản giàu ngữ nghĩa trước khi nhúng vector:
-
-```
-┌──────────────────────────┐
-│  BurgerPrints Catalog    │ ──► [Product: Gildan Unisex T-Shirt]
-│  (Raw API JSON Data)     │     [Material: 100% Cotton, DTG Print]
-└────────────┬─────────────┘
-             │
-             ▼
-┌──────────────────────────┐
-│   Structured Chunking    │ ──► "Tên sản phẩm: Gildan T-Shirt. Loại: Áo thun.
-│   (Markdown Template)    │      Chất liệu: Cotton. Công nghệ in: DTG. Tags: Áo thun..."
-└────────────┬─────────────┘
-             │
-             ▼
-┌──────────────────────────┐
-│   Gemini Embedding API   │ ──► Gọi text-embedding-004 chuyển thành Vector [768]
-└────────────┬─────────────┘
-             │
-             ▼
-┌──────────────────────────┐
-│   ChromaDB / pgvector    │ ──► Lưu Vector kèm Metadata {product_id, base_cost}
-└──────────────────────────┘
-```
-
-#### Ví dụ về Cấu trúc một Chunk đưa vào Vector DB:
-```markdown
-Product ID: prod_bp_tshirt_01
-Name: Gildan Heavy Cotton T-Shirt (Unisex)
-Category: Apparel / T-Shirt
-Description: Áo thun cổ tròn unisex form rộng, chất liệu cotton 100% dày dặn, thấm hút mồ hôi. Phù hợp in hình ảnh, graphic design bằng công nghệ DTG (Direct to Garment).
-Material: 100% Cotton
-Print Tech: DTG, Screen Printing
-Available Colors: Black, White, Navy, Sport Grey, Red
-Available Sizes: S, M, L, XL, XXL, 3XL
-Base Cost Range: $5.00 - $6.50
-```
-
-### 2.4. Metadata Schema trong Vector DB
-Mỗi Vector được gán kèm metadata dạng key-value để cho phép lọc cứng kết hợp tìm kiếm mềm:
-*   `product_id` (String): ID sản phẩm chính trên BurgerPrints.
-*   `category` (String): Danh mục cha (Apparel, Drinkware, Home Decor...).
-*   `print_tech` (String): Công nghệ in ấn hỗ trợ.
-*   `is_active` (Boolean): Trạng thái xưởng còn nhận phôi hay không.
-
-### 2.5. Chiến lược Truy vấn Kết hợp (Hybrid Search Workflow)
-Khi Seller gửi câu hỏi, Agent sẽ thực hiện tìm kiếm catalog qua 2 bước bảo vệ:
+### 2.3. Quy trình Đóng gói & Nhúng Hội thoại (Conversation Indexing Pipeline)
+Mỗi khi cuộc hội thoại phát sinh tin nhắn mới (gồm câu hỏi của User hoặc câu trả lời kèm bảng so sánh của Agent), hệ thống sẽ tiến hành lưu vào SQLite đồng thời chạy tiến trình bất đồng bộ nhúng tin nhắn vào ChromaDB:
 
 ```
-[Seller Chat: "Tìm áo thun cotton in DTG gửi đi Mỹ"]
+┌─────────────────────────────────┐
+│     New Message Generated       │ ──► [Conversation ID: conv_01]
+│  (User message or Agent response)│     [Content: "Tôi muốn bán T-shirt..."]
+└────────────────┬────────────────┘
+                 │
+                 ▼
+┌─────────────────────────────────┐
+│       Message Embedding         │ ──► Gọi Gemini text-embedding-004
+│      (Gemini API Client)        │     Tạo Vector đại diện [768 dimensions]
+└────────────────┬────────────────┘
+                 │
+                 ▼
+┌─────────────────────────────────┐
+│      ChromaDB Local Collection  │ ──► Lưu Vector kèm Metadata:
+│       ("chat_history_memory")   │     { conversation_id, sender, user_id }
+└─────────────────────────────────┘
+```
+
+#### Cấu trúc một Chunk lưu trong ChromaDB Collection:
+*   **Document Content:** 
+    ```markdown
+    Conversation ID: conv_88776655
+    Sender: user
+    Message: Tôi muốn bán T-shirt cho thị trường Mỹ, giá vốn dưới $8, ship dưới 5 ngày, chọn xưởng nào, SKU nào?
+    Timestamp: 2026-06-06 10:45:00
+    ```
+*   **Metadata:**
+    *   `conversation_id` (String): Liên kết khóa ngoại đến bảng `conversations.id`.
+    *   `sender` (String): `'user'` hoặc `'assistant'`.
+    *   `user_id` (String): Liên kết đến `users.id` để phân quyền tìm kiếm (chỉ cho phép truy vấn lịch sử của chính user đó).
+    *   `created_at` (String): Mốc thời gian tạo tin nhắn.
+
+### 2.4. Chiến lược Truy vấn Ngữ cảnh & Phục hồi Bộ nhớ (Semantic Memory Retrieval)
+Khi người dùng bắt đầu lượt chat mới, LangGraph sẽ kích hoạt cơ chế hồi tưởng bộ nhớ theo luồng sau:
+
+```
+[Seller Input: "Tìm xưởng in Hoodie ship EU rẻ nhất"]
    │
    ▼
-1. Semantic Search (Vector DB)
-   - Nhúng câu lệnh chat thành Vector [768].
-   - Truy vấn ChromaDB lấy Top 5 Product ID phù hợp nhất.
+1. Semantic Recall (ChromaDB Query)
+   - Nhúng câu hỏi hiện tại thành vector [768].
+   - Tìm kiếm ChromaDB giới hạn metadata { user_id: active_user_id } với top_k = 3.
+   - Trả ra 3 tin nhắn trong quá khứ liên quan nhất (ví dụ: User từng nói muốn bán Hoodie ở Đức).
    │
    ▼
-2. Real-time API Sourcing (BurgerPrints API)
-   - Dùng 5 Product ID vừa tìm được, gọi API trực tiếp lấy báo giá (Variant Cost, Shipping Options) theo thị trường "US".
+2. Context Injection (LangGraph Memory Node)
+   - Bổ sung 3 tin nhắn quá khứ vừa recall được vào System Prompt / State Context làm bộ nhớ tạm thời.
    │
    ▼
-3. Pricing & Xếp hạng (Python Engine)
-   - Tính toán chi phí thực tế, margin và SLA.
-   - Xuất kết quả đề xuất trực quan.
+3. Real-time API Sourcing (BurgerPrints API v2.0)
+   - Gọi trực tiếp API để lấy giá gốc phôi Hoodie và phí ship EU thời gian thực (đảm bảo giá mới nhất).
+   │
+   ▼
+4. Deterministic Calculation & Ranking (Python Pricing Engine)
+   - Tính toán landed cost và margin của các xưởng.
+   - Agent xếp hạng và xuất phản hồi kèm bảng so sánh trực quan.
 ```
-Cơ chế Hybrid Search này giúp hệ thống vừa hiểu được ngôn ngữ tự nhiên phong phú của Seller, vừa đảm bảo **dữ liệu giá cả và tồn kho của nhà in luôn cập nhật mới nhất từ API thực tế**, triệt tiêu nguy cơ LLM ảo giác về giá cả.
+
+Giải pháp này tối ưu hóa việc quản lý bộ nhớ của Agent (Stateful Agent Memory) đồng thời bảo vệ hệ thống khỏi các sai lệch về mặt dữ liệu thương mại thay đổi liên tục của catalog BurgerPrints.

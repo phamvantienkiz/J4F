@@ -40,58 +40,58 @@ Dự án BurgerPrints Agent được đánh giá là thành công khi đáp ứn
 2.  **Truy vấn SKU chính xác:** Truy xuất đúng thông tin chi tiết và biến thể sản phẩm từ BurgerPrints API thực tế.
 3.  **So sánh trực quan (Decision-Ready):** Trình bày rõ ràng bảng so sánh Top 3 lựa chọn kèm theo phân tích trade-off (đánh đổi giữa giá, tốc độ ship, chất lượng xưởng).
 4.  **Tạo đơn hàng liền mạch (Execution):** Hỗ trợ tạo thành công đơn hàng hoàn chỉnh (hoặc nháp) thông qua API BurgerPrints sau khi có xác nhận cuối cùng từ Seller.
-5.  **Trải nghiệm ấn tượng (Wow Factor):** Giao diện Streamlit kết hợp biểu đồ động, bảng so sánh trực quan và panel thông tin động hiển thị trạng thái ràng buộc hiện tại (Current Constraints).
+5.  **Trải nghiệm ấn tượng (Wow Factor):** Giao diện 3 cột hiện đại (Vite React + TypeScript) tích hợp Sidebar lịch sử chat động, khung chat mượt mà và Right Panel hiển thị mockup sản phẩm kèm theo Order HUD Checkout trực quan.
 
 ---
 
 ## 4. Kiến Trúc Hệ Thống (System Architecture)
 
-Hệ thống được thiết kế theo mô hình **Client-Server đơn giản nhưng hiệu năng cao**, loại bỏ các thành phần phức tạp không cần thiết (microservices, vector DB không bắt buộc) để đảm bảo độ trễ thấp nhất.
+Hệ thống được thiết kế theo mô hình **Client-Server hiệu năng cao**, tích hợp bảo mật JWT Authentication, cơ chế tìm kiếm lịch sử ngữ nghĩa (Semantic Memory) bằng Vector DB, và lấy thông tin catalog hoàn toàn thời gian thực.
 
 ```mermaid
 graph TD
     subgraph Client Layer (UI)
-        UI[Streamlit Web App]
+        UI[Vite React App]
     end
 
     subgraph Backend Layer (FastAPI Gateway)
-        API[FastAPI Router]
+        API[FastAPI Router - JWT Auth]
         AgentEngine[LangGraph Orchestrator]
         PricingEngine[Deterministic Pricing Engine]
     end
 
     subgraph Model & Data Layer
-        LLM[Gemini API - Gemini 1.5/2.0]
-        DB[(SQLite DB)]
+        LLM[Gemini API - text-embedding-004 / Llama / Gemini]
+        DB[(SQLite Relational DB)]
+        VDB[(ChromaDB Vector DB)]
     end
 
     subgraph External System
-        BP_API[BurgerPrints API Mock/Real]
+        BP_API[BurgerPrints API v2.0]
     end
 
-    UI <-->|HTTP / WebSockets| API
+    UI <-->|HTTP / JSON + JWT| API
     API <--> AgentEngine
-    AgentEngine <-->|Structured Output / Function Calling| LLM
+    AgentEngine <-->|Structured Output / Embeddings| LLM
     AgentEngine <-->|Calculations| PricingEngine
-    AgentEngine <-->|Save State / Preferences| DB
-    AgentEngine <-->|Read/Action Tools| BP_API
+    AgentEngine <-->|Relational States / Prefs| DB
+    AgentEngine <-->|Semantic Chat History| VDB
+    AgentEngine <-->|Read/Action Tools (Real-time)| BP_API
 ```
 
 ### 4.1. Chi tiết các thành phần kiến trúc
 
-#### A. Tầng Giao Diện (Streamlit UI)
-*   Được xây dựng hoàn toàn bằng **Streamlit** (Python).
-*   Gồm 3 khu vực chính:
-    1.  **Khung Chat chính (Chat Interface):** Dành cho hội thoại tự nhiên với Agent.
-    2.  **Bảng Điều kiện Lọc (Sidebar Panel / Constraints):** Hiển thị các thuộc tính đã trích xuất được (Market, Target Margin, Max Shipping Days) để Seller dễ dàng theo dõi.
-    3.  **Bảng So sánh & Nút Hành động (Comparison Panel):** Hiển thị Top 3 phương án dưới dạng bảng so sánh thông số chi tiết (Landed cost, profit margin, SLA days) kèm nút bấm "Confirm Order" tương tác nhanh.
+#### A. Tầng Giao Diện (Vite React UI)
+*   Được xây dựng bằng **Vite + React + TypeScript** và **Vanilla CSS**.
+*   Gồm 3 cột chính:
+    1.  **Left Sidebar (Cột 1):** Lịch sử chat và user profile.
+    2.  **Center Chat Area (Cột 2):** Khung chat Markdown và bảng so sánh các xưởng in.
+    3.  **Right Inspector & HUD (Cột 3):** Hiển thị mockup chi tiết sản phẩm và Order HUD Checkout.
 
 #### B. Tầng Backend & API Gateway (FastAPI)
-*   Sử dụng **FastAPI** làm API gateway trung gian để kết nối Streamlit UI với Agent.
-*   Cung cấp các endpoint:
-    *   `/chat/message`: Nhận tin nhắn từ UI và gửi vào LangGraph workflow.
-    *   `/order/confirm`: Nhận lệnh xác nhận tạo đơn từ UI (khi click nút hoặc ra lệnh chat).
-    *   Tự động sinh tài liệu API tương tác tại `/docs` (Swagger UI) hỗ trợ việc kiểm thử trực tiếp của Ban giám khảo.
+*   Sử dụng **FastAPI** hỗ trợ phân quyền JWT, quản lý phiên và làm cổng định tuyến.
+*   Cung cấp các API: Đăng ký/Đăng nhập, gửi tin nhắn chat, lấy lịch sử phiên, xác nhận tạo đơn.
+*   Tự động sinh Swagger UI tại `/docs`.
 
 #### C. Tầng Điều Phối Agent (LangGraph Orchestration)
 *   **LangGraph** đóng vai trò là xương sống quản lý trạng thái (State) và luồng rẽ nhánh (Routing) của Agent.
@@ -102,9 +102,9 @@ graph TD
     1.  **Function Calling:** Cho phép mô hình tự động quyết định khi nào cần gọi các API đọc thông tin catalog hoặc API tạo đơn hàng.
     2.  **Structured Outputs (JSON Schema):** Ép kiểu dữ liệu trả về từ LLM khớp chính xác với cấu trúc mong muốn của Backend (ví dụ: bóc tách slots, phân loại intent).
 
-#### E. Tầng Dữ liệu & Lưu trữ (SQLite)
-*   Sử dụng **SQLite** lưu trữ gọn nhẹ dưới dạng tệp tin cục bộ.
-*   Lưu trữ lịch sử hội thoại (short-term memory) và các tùy chọn ưu tiên của Seller (preference memory) như thị trường mục tiêu (US/EU), mức margin tối thiểu.
+#### E. Tầng Dữ liệu & Lưu trữ (SQLite & ChromaDB)
+*   **SQLite:** Lưu trữ dữ liệu quan hệ (tài khoản Seller, danh sách phiên chat, lịch sử tin nhắn và lịch sử đẩy đơn).
+*   **ChromaDB:** Lưu trữ nhúng vector của tin nhắn hội thoại để phục vụ tìm kiếm và gợi nhớ ngữ cảnh ngữ nghĩa (Semantic Memory Recall).
 
 ---
 
@@ -182,7 +182,7 @@ $$Score = w_1 \cdot Margin + w_2 \cdot Speed + w_3 \cdot Reliability - w_4 \cdot
 Sau đó, Agent xuất ra Top 3 lựa chọn kèm phân tích ưu nhược điểm (trade-off) rõ ràng của từng phương án để Seller đưa ra quyết định.
 
 #### Bước 6 — Confirmation & order creation (Xác nhận & Tạo đơn)
-Khi Seller đồng ý với một phương án (ví dụ: *"Chốt phương án 1"* hoặc nhấn nút "Confirm Order" trên Streamlit UI), Agent sẽ:
+Khi Seller đồng ý với một phương án (ví dụ: "Chốt phương án 1" hoặc nhấn nút "Confirm Fulfillment Order" trên Right Panel của giao diện), Agent sẽ:
 1.  Tổng hợp thông tin đơn hàng nháp (`order_draft`): SKU, Size, Màu sắc, Địa chỉ ship, Số lượng.
 2.  Yêu cầu xác nhận lần cuối từ người dùng.
 3.  Gọi **Action Tool** (`create_order`) gửi request lên hệ thống BurgerPrints và lưu trữ mã vận đơn trả về.
@@ -223,10 +223,10 @@ Khi Seller đồng ý với một phương án (ví dụ: *"Chốt phương án 
     *   *Phương án 2:* Giá rẻ nhất nhưng thời gian ship lâu (từ VN sang US), có nguy cơ bị khách hàng phàn nàn về tốc độ.
 4.  **Hành động tiếp theo (Next Action Prompt):** *"Bạn có muốn em tạo đơn nháp cho Phương án 1 không, hay cần điều chỉnh thông số lọc?"*
 
-### 7.1. Quản lý Bộ nhớ Đa lượt (Multi-turn Memory Design)
-Để tránh việc hỏi đi hỏi lại những thông tin cũ, hệ thống phân tách bộ nhớ thành 3 lớp riêng biệt:
-1.  **Short-term Memory (Bộ nhớ ngắn hạn):** Lưu trữ lịch sử tin nhắn trong session hiện tại để duy trì mạch trò chuyện.
-2.  **Preference Memory (Bộ nhớ tùy chọn):** Ghi nhớ các cài đặt lâu dài của Seller (ví dụ: Seller chuyên bán thị trường US, Target Margin mặc định luôn là 40%). Lần sau khi hỏi *"Tìm cốc sứ dưới \$5"*, Agent sẽ tự động mặc định tính toán cho thị trường US và lọc xưởng đáp ứng mức Margin 40% mà không cần hỏi lại.
+### 7.1. Quản lý Bộ nhớ Đa lượt & Gợi nhớ Ngữ nghĩa (Multi-turn & Semantic Memory Design)
+Để tránh việc hỏi đi hỏi lại những thông tin cũ, hệ thống phân tách bộ nhớ thành 3 lớp riêng biệt kết hợp công nghệ tìm kiếm vector:
+1.  **Short-term Memory (Bộ nhớ ngắn hạn):** Lưu trữ lịch sử tin nhắn trong session hiện tại (SQLite).
+2.  **Semantic Long-term Memory (Bộ nhớ ngữ nghĩa dài hạn):** Sử dụng **ChromaDB** lập chỉ mục (index) các tin nhắn trước. Khi bắt đầu hội thoại mới, hệ thống truy vấn ChromaDB để recall (gợi lại) các tùy chọn ưu tiên của Seller (ví dụ: Seller chuyên bán thị trường US, Target Margin mặc định luôn là 40%) để tự động điền vào State mà không bắt Seller nhập lại.
 3.  **Order Draft Memory (Bộ nhớ nháp đơn):** Lưu trữ tạm thời các thông tin sản phẩm và địa chỉ nhận hàng của khách hàng trong quá trình chuẩn bị chốt đơn.
 
 ---
@@ -235,7 +235,7 @@ Khi Seller đồng ý với một phương án (ví dụ: *"Chốt phương án 
 
 | Rủi ro phát sinh | Khả năng xảy ra | Mức độ ảnh hưởng | Phương án giảm thiểu (Mitigation) |
 | :--- | :--- | :--- | :--- |
-| **API Latency / Rate Limits**<br>Gemini API hoặc BurgerPrints API phản hồi chậm làm đơ UI demo. | Trung bình | Cao | * Tích hợp bộ đệm (Caching) cho các truy vấn Catalog phổ biến.<br>* Thiết kế thanh trạng thái tải (Loading state) trực quan trên Streamlit UI.<br>* Giảm số lần gọi LLM không cần thiết bằng cách lưu các slots vào state cục bộ. |
+| **API Latency / Rate Limits**<br>Gemini API hoặc BurgerPrints API phản hồi chậm làm đơ UI demo. | Trung bình | Cao | * Tích hợp bộ đệm (Caching) cho các truy vấn Catalog phổ biến.<br>* Thiết kế thanh trạng thái tải (Loading state) trực quan trên React UI.<br>* Giảm số lần gọi LLM không cần thiết bằng cách lưu các slots vào state cục bộ. |
 | **LLM ảo giác số liệu**<br>Agent hiển thị sai số tiền hoặc phần trăm margin cho Seller. | Cao | Nghiêm trọng | * Cấm tuyệt đối việc để LLM tự tính toán cộng trừ nhân chia.<br>* Toàn bộ dữ liệu số được truyền qua **Deterministic Pricing Engine** viết bằng Python.<br>* LLM chỉ nhận chuỗi JSON kết quả đã tính sẵn từ Python để sinh văn bản giải trình. |
 | **Mất ngữ cảnh hội thoại**<br>Seller đổi chủ đề đột ngột làm Agent bị rối loạn luồng đi. | Thấp | Trung bình | * LangGraph State Machine hỗ trợ cơ chế định tuyến linh hoạt (Conditional Routing).<br>* Khi phát hiện Intent mới hoàn toàn, Agent chủ động hỏi xác nhận: *"Bạn có muốn hủy đơn hàng đang tạo dở để tìm sản phẩm mới không?"* |
-| **Demo thiếu thuyết phục (Weak UX)**<br>Ban giám khảo chỉ thấy một khung chat chữ thông thường. | Trung bình | Cao | * UI Streamlit hiển thị song song khung chat và bảng thông tin các ràng buộc hiện tại (được cập nhật động).<br>* Hiển thị bảng so sánh Top 3 có định dạng Markdown đẹp mắt.<br>* Cung cấp các nút bấm tương tác nhanh (Button, Selectbox) ngay dưới khung chat để tăng tốc độ demo. |
+| **Demo thiếu thuyết phục (Weak UX)**<br>Ban giám khảo chỉ thấy một khung chat chữ thông thường. | Trung bình | Cao | * Giao diện 3 cột hiển thị song song khung chat, các ràng buộc và thông tin Checkout Order HUD thời gian thực.<br>* Hiển thị bảng so sánh Top 3 có định dạng HTML/CSS đẹp mắt.<br>* Cung cấp các nút bấm tương tác nhanh (Button, Suggestion Chips) ngay trong chat và Right Panel để tăng tốc độ demo. |

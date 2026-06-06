@@ -1,11 +1,11 @@
-1. [x] Design the product branding, name, positioning, and target user persona for the MVP based on mentor feedback → verify: Product branding section with options (e.g., PrintFlow AI) is defined.
+1. [x] Verify and align database and VectorDB roles across all files, establishing SQLite as the primary database and ChromaDB as the VectorDB for semantic chat history retrieval (ensuring zero product/factory catalog caching in VectorDB) → verify: Design constraints are updated in all specification files.
 
-2. [x] Design the UI/UX specifications for the new frontend (Next.js/Vite with TypeScript + CSS) including Chat Area, History Sidebar, Product Info/Order Right Panel, and simple Login/Register modal → verify: Detailed UI layout and component specs are documented.
+2. [x] Review and update `Solution/docs/ai/database_and_vectordb_spec.md` to shift ChromaDB's role from catalog indexing to semantic chat/conversation history index → verify: ChromaDB configuration and indexing flow match the new constraint.
 
-3. [x] Design the Database & Vector Database architecture including schemas for User accounts, Conversations, Messages, and RAG/semantic product catalog search → verify: DB schemas and VectorDB strategy are fully detailed.
+3. [x] Update `Solution/docs/ai/system_architecture.md` to ensure real-time BurgerPrints API sourcing is used for all product catalog requests and ChromaDB is used for conversation memory retrieval → verify: Sequence diagram and component description reflect the real-time sourcing flow.
 
-4. [x] Define the complete folder structure and layout under the `@Product/` directory (covering backend, frontend, and ai components) following clean FastAPI patterns → verify: Project structure file is drafted.
+4. [x] Update `Solution/docs/ai/solution_overview.md` to align with the real-time catalog sourcing and ChromaDB-based chat memory retrieval → verify: Solution overview text is consistent with the updated system.
 
-5. [x] Create new markdown files in `Solution/docs/ai/` documenting these design solutions and update the system architecture design → verify: `Solution/docs/ai/product_branding_ui_ux_spec.md`, `Solution/docs/ai/database_and_vectordb_spec.md`, and `Solution/docs/ai/project_structure_and_layout.md` exist and `system_architecture.md` is updated.
+5. [x] Update `Solution/docs/ai/user_flow_and_conversation_flow.md` to align the 3 user scenarios (T-shirt, Hoodie, Margin-based recommendation) with the precise example prompts in `tasks/request.md` → verify: Scenarios match the user-provided prompts exactly.
 
-6. [x] Perform the Pre-Commit Verification Loop on all created and modified documents → verify: Self-checks in step 6 of `AGENTS.md` are marked complete.
+6. [x] Perform the Pre-Commit Verification Loop on all updated document files → verify: Checks in step 6 of `AGENTS.md` are completed and conventional commits are made.

@@ -1,24 +1,29 @@
 ## Goal
 
-- Tiếp tục hoàn thiện solution cho MVP tạo ấn tượng với Ban giám Khảo
+Verify lại về solution cũng như flow của user
 
 ## Context
 
-Okay, sau khi đã hoàn thiện các tài liệu trong `@Solution/docs/ai` và `@Solution/docs/architecture` thì tôi có trao đổi với mentor của team. Thì hướng đi về solution cho bài toán đã đúng nhưng cần hoàn thiện thêm về phần UI (frontend), tên sản phẩm (định hướng product cho mvp này).
+Ví dụ thực tế với user:
 
-Những trao đổi về phần UX/UI với mentor thì chúng tôi cần thêm nhiều bao gồm hoàn thiện UX/UI chat hướng đến đúng đối tượng người dùng sao cho hiện đại, chuyên nghiệp, gọn gàng, dễ sử dụng và thêm các chức năng như:
+- "Tôi muốn bán T-shirt cho thị trường Mỹ, giá vốn dưới $8, ship dưới 5 ngày, chọn xưởng nào, SKU nào?"​
 
-- Login/Register đơn giản
-- UX/UI chat, side bar lịch sử chat, thanh baner bên phải cho một vài chức năng như xem thông tin sản phẩm, oder,..
-- Cần lưu lịch sử chat -> cần database và có thể cả vectorDB nếu cần
-- Core AI là LangGrap và Backend FastAPI, thêm Frontend sử dụng NextJS hoặc Vite với TypeScrpit
+- "So sánh giá Hoodie giữa các xưởng đang có, xưởng nào ship EU rẻ nhất?"​
+
+- "Tôi định bán giá $24.99, margin tối thiểu 40%, gợi ý sản phẩm phù hợp."​
+
+Với ví dụ sử dụng trên của khách hàng tôi chốt lại một số thông tin như sau:
+
+Phía database và vectorDB thì chỉ lưu những thông tin cần thiết, không lưu data các thông tin của xưởng, sản phẩm,... vì phần này sẽ thay đổi theo giờ/ngày nên cần sử dụng API của BurgerPrints để lấy thông tin -> Database sử dụng SQLite (nếu quá cần thiết thì sử dụng postgresql) phía vectorDB thì chọn giữa FAISS và ChromaDB (lưu lịch sử chat hay coversaion thì ưu tiên ChromaDB).
+
+Flow thì có thể nghĩ đơn giản là AI sẽ nhận thông tin của user sau đó quyết định gọi API nào để lấy data? sau đó gọi tool (python core) nào để tính toán sau đó trả ra các kết quả, AI tổng hợp và đưa ra đề xuất cho user (có cả các bảng giá để so sánh).
 
 ## Request:
 
-1. Với những yêu cầu ở trên của mentor, hãy tiến hành suy nghĩ và hoàn thiện các giải pháp hiện tại. Cần tạo thêm các file markdow trong `@Solution/docs/ai` chứa các thông tin/solution cần thiết.
-2. Với cấu trúc dự án thì tất cả code của dự án sẽ nằm trong thư mục `@Product/`. Thông thường tôi sẽ chia ra thành backend, frontend, ai. Trong backend FastAPI thường chứa đủ cấu trúc app/ trong app/ có: api/, core/, db/, models/, schemas/,... mục đích như thế để sau này dễ mở rộng và clean code. Hiện tại đối với đòi hỏi của Mentor thì chắc chắn phải xây dựng thêm frontend với NextJS hoặc Vite sử dụng TypeScript. Hãy phân tích và lên cấu trúc thư mục cho dự án. (nên tạo file hoặc viết vào file nào đó trong `@Solution/docs/ai`)
+Tôi nghĩ với những gì chúng ta phát triển đến giai đoạn hiện tại thì vẫn đang đi đúng hướng cho giải pháp AI Agent và thêm các ý mà mentor gợi ý. Một lần nữa hãy verify lại để đảm bảo tất cả các tài liệu đang được thống nhất.
 
 ---
 
 > Note:
 > Có thể tham khảo thêm file `@./Solution/docs/slides/gpt-solution.md` để thêm các context sâu.
+> Đề bài được đặt trong file `@./Solution/docs/topic.md`

@@ -6,7 +6,7 @@ Tài liệu này mô tả chi tiết kiến trúc hệ thống, các thành ph�
 
 ## 1. Hệ Thống Hoạt Động Như Thế Nào? (System Flow Overview)
 
-PrintFlow AI hoạt động dựa trên mô hình điều phối trạng thái (State-driven Architecture), trong đó **LangGraph** đóng vai trò điều khiển trung tâm, **FastAPI** làm cổng kết nối API bảo mật hỗ trợ JWT Authentication, **Gemini API** xử lý hiểu ngôn ngữ tự nhiên (NLU) và sinh nhúng vector, **Python Pricing Engine** tính toán tài chính chính xác tuyệt đối, **ChromaDB** thực hiện tìm kiếm catalog bằng vector, và **Vite React UI** cung cấp giao diện tương tác 3 cột động cho Seller.
+PrintFlow AI hoạt động dựa trên mô hình điều phối trạng thái (State-driven Architecture), trong đó **LangGraph** đóng vai trò điều khiển trung tâm, **FastAPI** làm cổng kết nối API bảo mật hỗ trợ JWT Authentication, **Gemini API** xử lý hiểu ngôn ngữ tự nhiên (NLU) và sinh nhúng vector, **Python Pricing Engine** tính toán tài chính chính xác tuyệt đối, **ChromaDB** lưu trữ và truy hồi ngữ nghĩa lịch sử chat, và **Vite React UI** cung cấp giao diện tương tác 3 cột động cho Seller.
 
 ### 1.1. Sơ đồ tuần tự tương tác (System Sequence Diagram)
 
@@ -31,20 +31,20 @@ sequenceDiagram
     
     rect rgb(240, 248, 255)
         note right of Agent: LangGraph Node 1: Memory & Intent Extraction
-        Agent->>DB: Truy vấn Lịch sử hội thoại & Preferences (theo thread_id)
-        DB-->>Agent: Trả về Preference cũ (ví dụ: Market mặc định = US)
-        Agent->>LLM: Gọi Gemini API (Phân tích Intent & Trích xuất Slots)
+        Agent->>DB: Truy vấn Lịch sử hội thoại gần đây (theo thread_id)
+        DB-->>Agent: Trả về các tin nhắn trước
+        Agent->>LLM: Gọi Gemini Embedding API để nhúng câu query hiện tại
+        LLM-->>Agent: Trả về Vector Embedding
+        Agent->>VDB: Truy vấn tương đồng ngữ nghĩa trong lịch sử chat cũ
+        VDB-->>Agent: Trả về ngữ cảnh/lựa chọn ưu tiên liên quan trong quá khứ
+        Agent->>LLM: Gọi Gemini API (Phân tích Intent & Trích xuất Slots kèm ngữ cảnh cũ)
         LLM-->>Agent: Trả về JSON (Intent: product_search, Slots: {product_type: "T-shirt", color: "black", max_price: 12, market: "US"})
     end
 
     rect rgb(255, 240, 245)
         note right of Agent: LangGraph Node 2: Catalog Retrieval & Pricing
         Agent->>Agent: Kiểm tra Slots (Đã đủ các thông tin cốt lõi: product_type, market)
-        Agent->>LLM: Gọi Gemini Embedding API để nhúng câu query thành Vector
-        LLM-->>Agent: Trả về Vector Embedding
-        Agent->>VDB: Gọi Semantic Search tìm top Product IDs khớp ngữ nghĩa
-        VDB-->>Agent: Trả về Product IDs (ví dụ: Gildan T-shirt ID)
-        Agent->>BP: Gọi Tool search_catalog() & get_factory_quotes(product_id)
+        Agent->>BP: Gọi trực tiếp BurgerPrints API search_catalog() & get_factory_quotes() (Real-time)
         BP-->>Agent: Trả về thông tin biến thể & báo giá thô từ các xưởng
         Agent->>Price: Gửi dữ liệu thô (base cost, ship cost, print fee)
         Price->>Price: Tính toán Landed Cost, Margin và SLA Risk (bằng Python)
@@ -92,7 +92,7 @@ Hệ thống được chia thành 5 thành phần cốt lõi. Mỗi thành phầ
        ▼                            ▼             ▼              ▼
 ┌──────────────┐             ┌──────────────┐┌──────────────┐┌───────────┐
 │  Gemini LLM  │             │Pricing Engine││  ChromaDB    ││SQLite/Post│
-│ - Intent/Slot│             │ - Landed Cost││ - Vector RAG ││ - History │
+│ - Intent/Slot│             │ - Landed Cost││ - Chat Memory││ - History │
 │ - Embeddings │             │ - Margin %   ││ - Semantic   ││ - Prefs   │
 └──────────────┘             └──────────────┘└──────────────┘└───────────┘
 ```
@@ -157,12 +157,12 @@ Hệ thống được chia thành 5 thành phần cốt lõi. Mỗi thành phầ
     4.  **Đánh giá rủi ro SLA (SLA Risk Score):** Tính toán độ tin cậy thời gian giao hàng dựa trên lịch sử giao hàng của xưởng in và khoảng cách địa lý.
 *   **Đầu ra:** Trả về một đối tượng JSON chứa danh sách các phương án đã được điền đầy đủ các thông số tài chính chính xác để đưa vào Node xếp hạng.
 
-### 2.6. Session Memory & Catalog Vector Storage (Lịch sử & Bộ nhớ RAG)
+### 2.6. Session Memory & Semantic Memory Storage (Lịch sử & Bộ nhớ ngữ nghĩa)
 *   **Công nghệ:** SQLite/PostgreSQL (Quan hệ) + ChromaDB (Vector DB).
 *   **Nhiệm vụ:**
     *   Lưu thông tin đăng ký User, thiết lập sở thích của Seller, và lịch sử tin nhắn đa lượt.
     *   Lưu trữ Checkpoints của LangGraph để khôi phục trạng thái máy khi refresh trang.
-    *   ChromaDB lưu trữ vector nhúng của mô tả catalog để hỗ trợ tìm kiếm ngữ nghĩa.
+    *   ChromaDB lưu trữ vector nhúng của lịch sử tin nhắn hội thoại để phục vụ tìm kiếm ngữ nghĩa và gợi nhớ ngữ cảnh (Semantic Memory Recall).
 *   **Đặc tả cấu trúc chi tiết:**
     *   Toàn bộ cấu trúc Schema quan hệ (gồm bảng `users`, `user_preferences`, `conversations`, `messages`, `order_history`) được triển khai chi tiết tại [Database & VectorDB Specification](file:///E:/Hackathon2026/J4F/Solution/docs/ai/database_and_vectordb_spec.md).
 
@@ -194,8 +194,8 @@ Khi người dùng gửi tin nhắn yêu cầu tìm kiếm, dữ liệu sẽ di 
 [LangGraph: extract_slots_node] ────► (Gửi đến Gemini API để trích xuất slots)
    │                                  Đầu ra: {product_type: "T-shirt", market: "US"}
    ▼
-[LangGraph: retrieve_catalog_node] ──► (Gọi Gemini Embeddings -> ChromaDB Vector search -> Gọi API BurgerPrints)
-   │                                  Đầu ra: SKU & Báo giá chi tiết từ các xưởng phù hợp ngữ nghĩa
+[LangGraph: retrieve_catalog_node] ──► (Gọi trực tiếp BurgerPrints API search_catalog() & get_factory_quotes())
+   │                                  Đầu ra: SKU & Báo giá thô thời gian thực từ các xưởng phù hợp
    ▼
 [LangGraph: calculate_pricing_node] ─► (Chuyển sang Python Pricing Engine tính margin)
    │                                  Đầu ra: Landed Cost & Profit Margin chi tiết
@@ -248,5 +248,5 @@ Khi người dùng gửi tin nhắn yêu cầu tìm kiếm, dữ liệu sẽ di 
     *   *Lý do:* Đảm bảo tính nhất quán dữ liệu tài chính. LLM dễ bị ảo giác số học. Do đó, Pricing Engine bằng Python thuần chịu trách nhiệm tính toán toàn bộ số liệu, LLM chỉ đóng vai trò thuyết minh.
 4.  **Sử dụng SQLite cho Database quan hệ & lưu Checkpoints:**
     *   *Lý do:* Gọn nhẹ, không yêu cầu thiết lập container database cồng kềnh trong quá trình chạy thử hackathon. Dễ cấu hình migrations và backup.
-5.  **Tích hợp ChromaDB làm Vector DB cho Catalog RAG:**
-    *   *Lý do:* Tìm kiếm ngữ nghĩa vượt trội hơn so với lọc từ khóa thô, giúp hệ thống thân thiện với cách chat tự nhiên của Seller. ChromaDB rất nhẹ, chạy local không tốn tài nguyên.
+5.  **Tích hợp ChromaDB làm Vector DB cho Lịch sử chat (Semantic Memory):**
+    *   *Lý do:* Giúp hệ thống hồi tưởng ngữ cảnh cũ thông minh qua tìm kiếm độ tương đồng vector, hỗ trợ cuộc trò chuyện nhiều lượt tự nhiên mà không bắt Seller khai báo lại các sở thích đã thống nhất trong các phiên trước. ChromaDB siêu nhẹ, chạy local nhanh.
