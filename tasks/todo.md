@@ -1,11 +1,9 @@
-1. [x] Verify and align database and VectorDB roles across all files, establishing SQLite as the primary database and ChromaDB as the VectorDB for semantic chat history retrieval (ensuring zero product/factory catalog caching in VectorDB) → verify: Design constraints are updated in all specification files.
+1. [x] Create the master test plan file `Solution/docs/test/test_plan.md` defining the test strategy, scope, environment, and verification checklists. → verify: File exists and contains detailed test strategy and scope for the backend and AI agent.
 
-2. [x] Review and update `Solution/docs/ai/database_and_vectordb_spec.md` to shift ChromaDB's role from catalog indexing to semantic chat/conversation history index → verify: ChromaDB configuration and indexing flow match the new constraint.
+2. [x] Create the agent workflow and NLU test scenarios file `Solution/docs/test/agent_flow_tests.md` detailing the test cases for LangGraph nodes, pricing calculations, ranking logic, and the 4 user scenarios. → verify: File exists and contains test cases for all LangGraph nodes and conversational scripts.
 
-3. [x] Update `Solution/docs/ai/system_architecture.md` to ensure real-time BurgerPrints API sourcing is used for all product catalog requests and ChromaDB is used for conversation memory retrieval → verify: Sequence diagram and component description reflect the real-time sourcing flow.
+3. [x] Create the API gateway and BurgerPrints integration test cases file `Solution/docs/test/api_integration_tests.md` specifying test coverage for FastAPI endpoints and BurgerPrints API. → verify: File exists and contains specifications for all REST API endpoints and external API wrapper tools.
 
-4. [x] Update `Solution/docs/ai/solution_overview.md` to align with the real-time catalog sourcing and ChromaDB-based chat memory retrieval → verify: Solution overview text is consistent with the updated system.
+4. [x] Create the relational database and semantic vector memory test specifications file `Solution/docs/test/database_and_vectordb_tests.md` detailing checks for SQLite schema and ChromaDB vector retrieval. → verify: File exists and specifies DB schema verification and vector query/indexing pipelines.
 
-5. [x] Update `Solution/docs/ai/user_flow_and_conversation_flow.md` to align the 3 user scenarios (T-shirt, Hoodie, Margin-based recommendation) with the precise example prompts in `tasks/request.md` → verify: Scenarios match the user-provided prompts exactly.
-
-6. [x] Perform the Pre-Commit Verification Loop on all updated document files → verify: Checks in step 6 of `AGENTS.md` are completed and conventional commits are made.
+5. [x] Perform the Pre-Commit Verification Loop on all newly created test document files. → verify: Checks in step 6 of `AGENTS.md` are completed.
