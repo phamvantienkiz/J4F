@@ -15,7 +15,7 @@ os.makedirs(CHROMADB_PATH, exist_ok=True)
 
 # Initialize ChromaDB Client
 chroma_client = chromadb.PersistentClient(path=CHROMADB_PATH)
-collection = chroma_client.get_or_create_collection(name="chat_history_memory")
+collection = chroma_client.get_or_create_collection(name="chat_history_memory_v2")
 
 # Initialize Gemini Client if API key is provided
 api_key = os.getenv("GEMINI_API_KEY")
@@ -27,13 +27,13 @@ else:
 
 def get_embedding(text: str) -> List[float]:
     """
-    Get 768-dimensional embedding from Gemini text-embedding-004 model.
+    Get 3072-dimensional embedding from Gemini gemini-embedding-2 model.
     Falls back to a vector of zeros if GEMINI_API_KEY is not set or API call fails.
     """
     if genai_client and text.strip():
         try:
             response = genai_client.models.embed_content(
-                model="text-embedding-004",
+                model="gemini-embedding-2",
                 contents=text
             )
             if response.embeddings:
@@ -41,8 +41,8 @@ def get_embedding(text: str) -> List[float]:
         except Exception as e:
             logger.error(f"Error calling Gemini Embedding API: {e}")
     
-    # Fallback mock embedding: 768 float values
-    return [0.0] * 768
+    # Fallback mock embedding: 3072 float values
+    return [0.0] * 3072
 
 def index_message(conversation_id: str, sender: str, user_id: str, content: str, created_at: str) -> None:
     """

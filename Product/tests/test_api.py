@@ -2,10 +2,29 @@ import pytest
 from httpx import AsyncClient, ASGITransport
 import sys
 import os
+import uuid
 
 sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from backend.main import app
+
+async def get_auth_headers(ac: AsyncClient, email: str) -> dict:
+    """
+    Helper to register a new user and retrieve their authorization headers.
+    """
+    # 1. Register
+    await ac.post("/api/v1/auth/register", json={
+        "email": email,
+        "password": "testpassword123",
+        "store_name": "My test store"
+    })
+    # 2. Login
+    res = await ac.post("/api/v1/auth/login", json={
+        "email": email,
+        "password": "testpassword123"
+    })
+    token = res.json()["access_token"]
+    return {"Authorization": f"Bearer {token}"}
 
 @pytest.mark.asyncio
 async def test_root_endpoint():
@@ -16,25 +35,21 @@ async def test_root_endpoint():
 
 @pytest.mark.asyncio
 async def test_auth_workflow():
+    local_email = f"seller_test_{uuid.uuid4().hex[:8]}@example.com"
     async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as ac:
         # 1. Register a test user
         register_payload = {
-            "email": "seller_test@example.com",
+            "email": local_email,
             "password": "testpassword123",
             "store_name": "My test store"
         }
         res_register = await ac.post("/api/v1/auth/register", json=register_payload)
-        
-        # If user already exists (e.g. from previous run), registration might fail, but let's try login
-        if res_register.status_code == 400:
-            assert "already exists" in res_register.json()["detail"]
-        else:
-            assert res_register.status_code == 200
-            assert "access_token" in res_register.json()
+        assert res_register.status_code == 200
+        assert "access_token" in res_register.json()
 
         # 2. Login
         login_payload = {
-            "email": "seller_test@example.com",
+            "email": local_email,
             "password": "testpassword123"
         }
         res_login = await ac.post("/api/v1/auth/login", json=login_payload)
@@ -45,7 +60,7 @@ async def test_auth_workflow():
         # 3. Get profile
         res_me = await ac.get("/api/v1/auth/me", headers=headers)
         assert res_me.status_code == 200
-        assert res_me.json()["email"] == "seller_test@example.com"
+        assert res_me.json()["email"] == local_email
 
         # 4. Get preferences
         res_pref = await ac.get("/api/v1/auth/preference", headers=headers)
@@ -65,23 +80,16 @@ async def test_auth_workflow():
 
 @pytest.mark.asyncio
 async def test_chat_workflow():
+    local_email = f"seller_test_{uuid.uuid4().hex[:8]}@example.com"
     async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as ac:
-        # 1. Login to get token
-        login_payload = {
-            "email": "seller_test@example.com",
-            "password": "testpassword123"
-        }
-        res_login = await ac.post("/api/v1/auth/login", json=login_payload)
-        assert res_login.status_code == 200
-        token = res_login.json()["access_token"]
-        headers = {"Authorization": f"Bearer {token}"}
+        headers = await get_auth_headers(ac, local_email)
 
-        # 2. Create conversation
+        # 1. Create conversation
         res_conv = await ac.post("/api/v1/chat/conversations", headers=headers)
         assert res_conv.status_code == 200
         conv_id = res_conv.json()["id"]
 
-        # 3. Send message (should trigger clarify since requirements are empty)
+        # 2. Send message (should trigger clarify since requirements are empty)
         msg_payload = {"content": "Tìm xưởng in áo thun"}
         res_msg = await ac.post(f"/api/v1/chat/conversations/{conv_id}/message", json=msg_payload, headers=headers)
         assert res_msg.status_code == 200

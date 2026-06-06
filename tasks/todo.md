@@ -47,3 +47,9 @@
 - [x] 24. Implement Order Confirmation and success animations (Confetti) upon clicking "Confirm Fulfillment Order" via `POST /api/v1/order/confirm`. → verify: Confirm clicking CTA submits the order draft, locks the button, triggers confetti, and prints the generated Order ID and tracking details.
 
 - [x] 25. Perform full end-to-end integration and run tests verifying user registration, profile preference updates, multi-turn AI consultation, option selection, and successful order execution. → verify: Complete a standard user journey from login to final order receipt, checking for zero console errors and correct database persistence.
+
+- [x] 26. Update Gemini chat/reasoning model to "gemini-3.1-flash-lite" in `Product/ai/nodes.py`. → verify: Run content generation test with client and see it doesn't fail.
+
+- [x] 27. Configure ChromaDB embedding model to "gemini-embedding-2" (3072 dimensions) and update fallback embedding logic in `Product/ai/vector_rag.py`. → verify: Embedding calls return 3072-dimensional vectors.
+
+- [x] 28. Fix test isolation in `Product/tests/test_api.py` using dynamic emails and update mock queries in `Product/tests/test_agent.py` to stabilize tests under real LLM execution. → verify: Run `py.test.exe` and confirm all tests pass successfully.

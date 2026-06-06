@@ -74,7 +74,7 @@ def extract_intent_node(state: AgentState) -> Dict[str, Any]:
             """
             
             response = genai_client.models.generate_content(
-                model='gemini-2.5-flash',
+                model='gemini-3.1-flash-lite',
                 contents=prompt,
                 config=types.GenerateContentConfig(
                     response_mime_type="application/json",
@@ -342,7 +342,7 @@ def rank_and_recommend_node(state: AgentState) -> Dict[str, Any]:
             """
             
             response = genai_client.models.generate_content(
-                model='gemini-2.5-flash',
+                model='gemini-3.1-flash-lite',
                 contents=prompt
             )
             explanation = response.text

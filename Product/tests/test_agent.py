@@ -6,7 +6,7 @@ def test_agent_clarify_flow():
     initial_state = {
         "thread_id": "test_thread_1",
         "user_preferences": UserPreference(preferred_market="US", target_margin=40.0),
-        "conversation_history": [{"sender": "user", "content": "Tìm xưởng in áo cho tôi"}],
+        "conversation_history": [{"sender": "user", "content": "Xin chào"}],
         "requirements": Requirements(product_type=None, market=None),
         "candidates": [],
         "calculated_options": [],
