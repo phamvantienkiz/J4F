@@ -291,9 +291,13 @@ export const ChatArea: React.FC<ChatAreaProps> = ({
           <div className="chat-log">
             {messages.map((msg) => {
               const isAssistant = msg.sender === 'assistant';
+              const hasTable = isAssistant && 
+                msg.metadata && 
+                msg.metadata.comparison_table && 
+                msg.metadata.comparison_table.length > 0;
               return (
-                <div key={msg.id} className={`chat-bubble-container ${msg.sender}`}>
-                  <div className={`chat-bubble ${msg.sender}`}>
+                <div key={msg.id} className={`chat-bubble-container ${msg.sender} ${hasTable ? 'has-table-container' : ''}`}>
+                  <div className={`chat-bubble ${msg.sender} ${hasTable ? 'has-table' : ''}`}>
                     <div className="bubble-content">
                       {renderFormattedContent(msg.content)}
                     </div>

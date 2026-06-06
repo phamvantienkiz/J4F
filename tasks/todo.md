@@ -53,3 +53,11 @@
 - [x] 27. Configure ChromaDB embedding model to "gemini-embedding-2" (3072 dimensions) and update fallback embedding logic in `Product/ai/vector_rag.py`. → verify: Embedding calls return 3072-dimensional vectors.
 
 - [x] 28. Fix test isolation in `Product/tests/test_api.py` using dynamic emails and update mock queries in `Product/tests/test_agent.py` to stabilize tests under real LLM execution. → verify: Run `py.test.exe` and confirm all tests pass successfully.
+
+- [x] 29. Define global `flex-col` utilities in `Product/frontend/src/index.css`. → verify: Confirm `.flex-col` class is added with `display: flex; flex-direction: column;`.
+
+- [x] 30. Optimize `.col-chat` column styling in `Product/frontend/src/App.css` to prevent layout expansion. → verify: Confirm `.col-chat` has `min-width: 0;` and `overflow: hidden;`.
+
+- [x] 31. Correct `.chat-area` and `.chat-messages` flex dimensions in `Product/frontend/src/components/ChatArea.css`. → verify: Confirm `.chat-messages` scroll vertically and input box remains visible at the bottom of the screen.
+
+- [x] 32. Adjust width limits on chat bubbles containing large tables in `Product/frontend/src/components/ChatArea.css`. → verify: Boulders containing tables expand to full width if needed, table wrapper handles overflow scroll horizontally, and no panels are pushed offscreen.

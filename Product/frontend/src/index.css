@@ -162,6 +162,11 @@ input, select, textarea {
   justify-content: center;
 }
 
+.flex-col {
+  display: flex;
+  flex-direction: column;
+}
+
 .text-gradient-primary {
   background: linear-gradient(135deg, #60A5FA, var(--primary));
   -webkit-background-clip: text;
