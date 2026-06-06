@@ -1,9 +1,11 @@
-# Tasks: Write System Architecture Document for Solution/docs/architecture
+1. [x] Design the product branding, name, positioning, and target user persona for the MVP based on mentor feedback → verify: Product branding section with options (e.g., PrintFlow AI) is defined.
 
-1. [x] Draft the step-by-step execution plan in `tasks/todo.md` and verify with the user → verify: User approval in the chat session.
+2. [x] Design the UI/UX specifications for the new frontend (Next.js/Vite with TypeScript + CSS) including Chat Area, History Sidebar, Product Info/Order Right Panel, and simple Login/Register modal → verify: Detailed UI layout and component specs are documented.
 
-2. [x] Outline the document structure for `Solution/docs/architecture/architecture.md` linking it to `Solution/docs/topic.md` and checking for missing requirements → verify: Outline covers core constraints, MoSCoW mapping, deployment design, and diagram specifications.
+3. [x] Design the Database & Vector Database architecture including schemas for User accounts, Conversations, Messages, and RAG/semantic product catalog search → verify: DB schemas and VectorDB strategy are fully detailed.
 
-3. [x] Write the complete `Solution/docs/architecture/architecture.md` with detailed system structure descriptions, Mermaid diagrams, and the 10-minute setup guide → verify: File exists, contains no placeholders, is 3-5 pages in length (~1500-2500 words), and matches all requirements.
+4. [x] Define the complete folder structure and layout under the `@Product/` directory (covering backend, frontend, and ai components) following clean FastAPI patterns → verify: Project structure file is drafted.
 
-4. [x] Perform the Pre-Commit Verification Loop on the generated file to ensure it aligns with the instructions, contains no placeholders, and has valid formatting → verify: Self-checks in step 6 of `AGENTS.md` are marked complete.
+5. [x] Create new markdown files in `Solution/docs/ai/` documenting these design solutions and update the system architecture design → verify: `Solution/docs/ai/product_branding_ui_ux_spec.md`, `Solution/docs/ai/database_and_vectordb_spec.md`, and `Solution/docs/ai/project_structure_and_layout.md` exist and `system_architecture.md` is updated.
+
+6. [x] Perform the Pre-Commit Verification Loop on all created and modified documents → verify: Self-checks in step 6 of `AGENTS.md` are marked complete.

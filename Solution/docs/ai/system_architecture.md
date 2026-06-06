@@ -1,12 +1,12 @@
-# SYSTEM ARCHITECTURE: BURGERPRINTS AGENT
+# SYSTEM ARCHITECTURE: PRINTFLOW AI
 
-Tài liệu này mô tả chi tiết kiến trúc hệ thống, các thành phần phần mềm (components), luồng tuần tự của dữ liệu (data flow) và cơ chế tích hợp của **BurgerPrints Agent** (Trợ lý Danh mục POD hỗ trợ ra quyết định). Tài liệu này được thiết kế để đảm bảo tính nhất quán tuyệt đối với tài liệu [Solution Overview](file:///E:/Hackathon2026/J4F/Solution/docs/ai/solution_overview.md).
+Tài liệu này mô tả chi tiết kiến trúc hệ thống, các thành phần phần mềm (components), luồng tuần tự của dữ liệu (data flow) và cơ chế tích hợp của **PrintFlow AI** (Trợ lý Danh mục POD hỗ trợ ra quyết định). Tài liệu này được thiết kế để đảm bảo tính nhất quán tuyệt đối với các tài liệu thiết kế đặc tả giao diện và cơ sở dữ liệu.
 
 ---
 
 ## 1. Hệ Thống Hoạt Động Như Thế Nào? (System Flow Overview)
 
-BurgerPrints Agent hoạt động dựa trên mô hình điều phối trạng thái (State-driven Architecture), trong đó **LangGraph** đóng vai trò điều khiển trung tâm, **FastAPI** làm cổng kết nối API bảo mật, **Gemini API** xử lý hiểu ngôn ngữ tự nhiên (NLU), **Python Pricing Engine** tính toán tài chính chính xác tuyệt đối, và **Streamlit UI** cung cấp giao diện tương tác động cho Seller.
+PrintFlow AI hoạt động dựa trên mô hình điều phối trạng thái (State-driven Architecture), trong đó **LangGraph** đóng vai trò điều khiển trung tâm, **FastAPI** làm cổng kết nối API bảo mật hỗ trợ JWT Authentication, **Gemini API** xử lý hiểu ngôn ngữ tự nhiên (NLU) và sinh nhúng vector, **Python Pricing Engine** tính toán tài chính chính xác tuyệt đối, **ChromaDB** thực hiện tìm kiếm catalog bằng vector, và **Vite React UI** cung cấp giao diện tương tác 3 cột động cho Seller.
 
 ### 1.1. Sơ đồ tuần tự tương tác (System Sequence Diagram)
 
@@ -16,16 +16,17 @@ Sơ đồ dưới đây minh họa luồng đi của dữ liệu từ khi Seller
 sequenceDiagram
     autonumber
     actor User as Seller (User)
-    participant UI as Streamlit UI
+    participant UI as Vite React UI
     participant Backend as FastAPI Backend
     participant Agent as LangGraph Agent (State Machine)
     participant LLM as Gemini API (LLM Layer)
+    participant VDB as ChromaDB (Vector DB)
     participant Price as Deterministic Pricing Engine (Python)
-    participant DB as SQLite (Session Memory)
+    participant DB as SQLite/Postgres (Relational DB)
     participant BP as BurgerPrints API (External API)
 
     User->>UI: Nhập tin nhắn: "Tìm T-shirt đen dưới $12"
-    UI->>Backend: POST /chat/message {message, thread_id}
+    UI->>Backend: POST /api/chat/message {message, thread_id} (Kèm JWT Auth Token)
     Backend->>Agent: Khởi tạo/Cập nhật Graph với tin nhắn mới
     
     rect rgb(240, 248, 255)
@@ -39,7 +40,11 @@ sequenceDiagram
     rect rgb(255, 240, 245)
         note right of Agent: LangGraph Node 2: Catalog Retrieval & Pricing
         Agent->>Agent: Kiểm tra Slots (Đã đủ các thông tin cốt lõi: product_type, market)
-        Agent->>BP: Gọi Tool search_catalog() & get_factory_quotes()
+        Agent->>LLM: Gọi Gemini Embedding API để nhúng câu query thành Vector
+        LLM-->>Agent: Trả về Vector Embedding
+        Agent->>VDB: Gọi Semantic Search tìm top Product IDs khớp ngữ nghĩa
+        VDB-->>Agent: Trả về Product IDs (ví dụ: Gildan T-shirt ID)
+        Agent->>BP: Gọi Tool search_catalog() & get_factory_quotes(product_id)
         BP-->>Agent: Trả về thông tin biến thể & báo giá thô từ các xưởng
         Agent->>Price: Gửi dữ liệu thô (base cost, ship cost, print fee)
         Price->>Price: Tính toán Landed Cost, Margin và SLA Risk (bằng Python)
@@ -55,8 +60,9 @@ sequenceDiagram
     end
 
     Agent-->>Backend: Phản hồi kết quả (Final Agent State)
-    Backend-->>UI: Trả về HTTP 200 {text_response, comparison_table, current_constraints}
-    UI-->>User: Hiển thị giao diện chat, bảng so sánh trực quan và cập nhật bộ lọc constraints
+    Backend-->>UI: Trả về HTTP 200 {text_response, comparison_table, current_constraints, mock_ups}
+    UI->>UI: Render chat bong bóng, bảng so sánh (Cột 2), nạp mockup (Cột 3), lưu constraints (Cột 1)
+    UI-->>User: Hiển thị giao diện 3 cột cập nhật tức thời
 ```
 
 ---
@@ -67,51 +73,51 @@ Hệ thống được chia thành 5 thành phần cốt lõi. Mỗi thành phầ
 
 ```
 ┌────────────────────────────────────────────────────────────────────────┐
-│                              Streamlit UI                              │
-│  - Khung Chat Tương Tác    - Bảng Constraints    - Bảng So Sánh Top 3  │
+│                              Vite React UI                             │
+│  - Giao diện 3 Cột (Sidebar, Chat Area, Right Banner Product & HUD)    │
 └───────────────────────────────────┬────────────────────────────────────┘
-                                    │ HTTP / JSON
+                                    │ HTTP / JSON (JWT authenticated)
                                     ▼
 ┌────────────────────────────────────────────────────────────────────────┐
 │                            FastAPI Backend                             │
-│  - API Router (/chat)      - Thread Manager      - API Swagger Docs    │
+│  - API Router (Auth, Chat) - Thread Manager      - API Swagger Docs    │
 └───────────────────────────────────┬────────────────────────────────────┘
                                     │ Internal Call
                                     ▼
 ┌────────────────────────────────────────────────────────────────────────┐
 │                        LangGraph Agent Engine                          │
 │  - State Machine & Workflow      - Tool Layer Routing                  │
-└──────┬────────────────────────────┬─────────────────────────────┬──────┘
-       │                            │                             │
-       ▼                            ▼                             ▼
-┌──────────────┐             ┌──────────────┐              ┌─────────────┐
-│  Gemini LLM  │             │Pricing Engine│              │ SQLite DB   │
-│ - Intent/Slot│             │ - Landed Cost│              │ - History   │
-│ - Clarify    │             │ - Margin %   │              │ - Preference│
-└──────────────┘             └──────────────┘              └─────────────┘
+└──────┬────────────────────────────┬─────────────┬──────────────┬───────┘
+       │                            │             │              │
+       ▼                            ▼             ▼              ▼
+┌──────────────┐             ┌──────────────┐┌──────────────┐┌───────────┐
+│  Gemini LLM  │             │Pricing Engine││  ChromaDB    ││SQLite/Post│
+│ - Intent/Slot│             │ - Landed Cost││ - Vector RAG ││ - History │
+│ - Embeddings │             │ - Margin %   ││ - Semantic   ││ - Prefs   │
+└──────────────┘             └──────────────┘└──────────────┘└───────────┘
 ```
 
-### 2.1. Streamlit UI (Giao diện người dùng)
-*   **Công nghệ:** Streamlit (Python 3.10+).
+### 2.1. Vite React UI (Giao diện người dùng)
+*   **Công nghệ:** Vite + React + TypeScript + Vanilla CSS.
 *   **Nhiệm vụ:**
-    *   Cung cấp giao diện Web trực quan, thân thiện cho Seller, tối ưu hóa hiển thị dữ liệu bảng biểu thay vì chỉ có giao diện chat chữ đơn thuần.
-    *   Gửi yêu cầu người dùng đến FastAPI Backend thông qua thư viện `httpx`.
+    *   Cung cấp giao diện 3 cột hiện đại, trực quan cho Seller, loại bỏ sự tẻ nhạt của chatbot đơn thuần.
+    *   Tích hợp Client API (Axios) đính kèm JWT Token để thực hiện xác thực với backend.
 *   **Các thành phần giao diện chính:**
-    *   **Chat Container (`st.chat_message`):** Hiển thị lịch sử hội thoại dưới dạng bong bóng chat.
-    *   **Constraints Sidebar Panel (`st.sidebar`):** Hiển thị các thông số ràng buộc hiện tại mà Agent đã bóc tách được từ Seller (Thị trường ưu tiên, Margin mục tiêu, Mức giá trần, Phương thức in). Giúp Seller biết Agent đang hiểu đúng hay sai nhu cầu của mình.
-    *   **Interactive Comparison Table:** Hiển thị kết quả so sánh Top 3 phương án tối ưu dưới dạng bảng (`st.dataframe` hoặc `st.table`) kèm theo các nút bấm hành động nhanh như *"Chọn Phương án 1"* hoặc *"Đặt đơn hàng nháp này"*.
+    *   **Sidebar Panel (Cột 1):** Hiển thị lịch sử hội thoại (lấy từ DB qua API `/chat/history`) và các nút chuyển đổi phiên chat.
+    *   **Chat Engine (Cột 2):** Khung chat chính, bong bóng chat Markdown, và bảng HTML so sánh Top 3 xưởng in.
+    *   **Right Inspector & Order HUD (Cột 3):** Banner bên phải để hiển thị chi tiết hình ảnh SKU sản phẩm được chọn và giao diện xác nhận đặt hàng (Order HUD Checkout).
 
 ### 2.2. FastAPI Backend (Cổng kết nối và Quản lý phiên)
-*   **Công nghệ:** FastAPI + Uvicorn.
+*   **Công nghệ:** FastAPI + Uvicorn + PyJWT + Passlib.
 *   **Nhiệm vụ:**
-    *   Đóng vai trò API Gateway, nhận và phân phối các yêu cầu từ giao diện Streamlit UI (hoặc các kênh phụ như Telegram Bot nếu mở rộng).
+    *   Đóng vai trò API Gateway, quản lý phân quyền truy cập thông qua xác thực Token JWT.
     *   Tự động sinh tài liệu API (OpenAPI Specification) tại `/docs` phục vụ mục đích kiểm thử trực tiếp.
-    *   Quản lý vòng đời yêu cầu (Request Lifecycle) và quản trị định danh Thread (`thread_id`) để gửi sang LangGraph.
+    *   Quản lý vòng đời yêu cầu (Request Lifecycle) và liên kết phiên chat của User trong DB với định danh `thread_id` trong LangGraph.
 *   **Các Endpoint chính:**
-    *   `POST /api/chat/message`: Nhận tin nhắn mới từ UI kèm `thread_id`. Trả về nội dung phản hồi của Agent kèm bảng dữ liệu so sánh đã được định dạng.
-    *   `POST /api/order/draft`: API tạo đơn hàng nháp trên hệ thống.
-    *   `POST /api/order/confirm`: API xác nhận thanh toán/chuyển trạng thái đơn hàng thật.
-    *   `GET /api/catalog/search`: API tra cứu nhanh danh mục sản phẩm (sử dụng cache cục bộ để tăng tốc).
+    *   `POST /api/v1/auth/register`: Đăng ký tài khoản Seller mới.
+    *   `POST /api/v1/auth/login`: Xác thực Email/Mật khẩu và cấp khóa JWT.
+    *   `POST /api/v1/chat/message`: Nhận tin nhắn mới từ UI kèm `thread_id`, chạy LangGraph và lưu kết quả vào DB.
+    *   `POST /api/v1/order/confirm`: Xác nhận tạo đơn hàng thật trên BurgerPrints API.
 
 ### 2.3. LangGraph Agent (Bộ não điều phối trạng thái)
 *   **Công nghệ:** LangGraph (LangChain Ecosystem).
@@ -151,35 +157,14 @@ Hệ thống được chia thành 5 thành phần cốt lõi. Mỗi thành phầ
     4.  **Đánh giá rủi ro SLA (SLA Risk Score):** Tính toán độ tin cậy thời gian giao hàng dựa trên lịch sử giao hàng của xưởng in và khoảng cách địa lý.
 *   **Đầu ra:** Trả về một đối tượng JSON chứa danh sách các phương án đã được điền đầy đủ các thông số tài chính chính xác để đưa vào Node xếp hạng.
 
-### 2.6. Session Memory (Hệ thống lưu trữ & Bộ nhớ)
-*   **Công nghệ:** SQLite (hoặc PostgreSQL).
+### 2.6. Session Memory & Catalog Vector Storage (Lịch sử & Bộ nhớ RAG)
+*   **Công nghệ:** SQLite/PostgreSQL (Quan hệ) + ChromaDB (Vector DB).
 *   **Nhiệm vụ:**
-    *   Lưu trữ trạng thái hội thoại và thiết lập của Seller để phục vụ tính năng đa lượt (Multi-turn Conversation) và khôi phục trạng thái (Checkpoints).
-*   **Cấu trúc bảng cơ sở dữ liệu (SQLite Schemas):**
-    
-    #### Bảng `sessions` (Lịch sử hội thoại ngắn hạn)
-    Dùng để lưu vết các lượt chat và trạng thái Graph Checkpoint của LangGraph.
-    ```sql
-    CREATE TABLE sessions (
-        session_id TEXT PRIMARY KEY,
-        thread_id TEXT NOT NULL,
-        user_id TEXT,
-        state_checkpoint BLOB,       -- Trạng thái nén của LangGraph State
-        updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-    );
-    ```
-
-    #### Bảng `user_preferences` (Bộ nhớ sở thích dài hạn)
-    Ghi nhớ các thiết lập ưu tiên của Seller để tự áp dụng cho các lượt tìm kiếm sau.
-    ```sql
-    CREATE TABLE user_preferences (
-        user_id TEXT PRIMARY KEY,
-        preferred_market TEXT DEFAULT 'US',   -- Thị trường ưu tiên (US, EU, VN...)
-        target_margin REAL DEFAULT 40.0,      -- Margin mục tiêu (%)
-        max_shipping_days INTEGER DEFAULT 7,   -- Thời gian ship tối đa mong muốn
-        fulfillment_priority TEXT DEFAULT 'margin' -- Ưu tiên 'margin' (lợi nhuận) hoặc 'speed' (tốc độ ship)
-    );
-    ```
+    *   Lưu thông tin đăng ký User, thiết lập sở thích của Seller, và lịch sử tin nhắn đa lượt.
+    *   Lưu trữ Checkpoints của LangGraph để khôi phục trạng thái máy khi refresh trang.
+    *   ChromaDB lưu trữ vector nhúng của mô tả catalog để hỗ trợ tìm kiếm ngữ nghĩa.
+*   **Đặc tả cấu trúc chi tiết:**
+    *   Toàn bộ cấu trúc Schema quan hệ (gồm bảng `users`, `user_preferences`, `conversations`, `messages`, `order_history`) được triển khai chi tiết tại [Database & VectorDB Specification](file:///E:/Hackathon2026/J4F/Solution/docs/ai/database_and_vectordb_spec.md).
 
 ### 2.7. Tool Layer / BurgerPrints API Integration (Tích hợp API BurgerPrints)
 *   **Công nghệ:** HTTP Client (`httpx`) kết nối trực tiếp đến BurgerPrints API System.
@@ -202,26 +187,26 @@ Khi người dùng gửi tin nhắn yêu cầu tìm kiếm, dữ liệu sẽ di 
 ```
 [User Input: "Áo thun cotton gửi đi US"] 
    │
-   ▼ (Streamlit UI đóng gói thành HTTP Request)
-[POST /api/chat/message] 
+   ▼ (Vite React UI đóng gói thành HTTP Request kèm JWT Token)
+[POST /api/v1/chat/message] 
    │
    ▼ (FastAPI chuyển đổi thành LangGraph State)
 [LangGraph: extract_slots_node] ────► (Gửi đến Gemini API để trích xuất slots)
    │                                  Đầu ra: {product_type: "T-shirt", market: "US"}
    ▼
-[LangGraph: retrieve_catalog_node] ──► (Gọi Tool search_catalog & get_factory_quotes)
-   │                                  Đầu ra: 3 báo giá thô từ 3 xưởng khác nhau
+[LangGraph: retrieve_catalog_node] ──► (Gọi Gemini Embeddings -> ChromaDB Vector search -> Gọi API BurgerPrints)
+   │                                  Đầu ra: SKU & Báo giá chi tiết từ các xưởng phù hợp ngữ nghĩa
    ▼
 [LangGraph: calculate_pricing_node] ─► (Chuyển sang Python Pricing Engine tính margin)
    │                                  Đầu ra: Landed Cost & Profit Margin chi tiết
    ▼
 [LangGraph: rank_and_recommend_node] ► (Gemini LLM sinh text giải trình & so sánh)
    │
-   ▼ (FastAPI trả về JSON kết quả)
-[HTTP Response: Chat text + Table JSON]
+   ▼ (FastAPI lưu tin nhắn vào SQLite và trả về JSON kết quả)
+[HTTP Response: Chat text + Table JSON + Product Specs]
    │
-   ▼ (Streamlit UI render trực quan)
-[Hiển thị Bảng so sánh 3 xưởng in trên màn hình Seller]
+   ▼ (Vite React UI render trực quan đa cột)
+[Hiển thị: Cột 2 hiển thị bảng so sánh & bong bóng chat; Cột 3 hiển thị mockup và chi tiết sản phẩm]
 ```
 
 ### 3.2. Luồng Tạo Đơn hàng (Order Creation Flow)
@@ -255,11 +240,13 @@ Khi người dùng gửi tin nhắn yêu cầu tìm kiếm, dữ liệu sẽ di 
 
 ## 4. Các Quyết Định Thiết Kế Kỹ Thuật (Architectural Decisions)
 
-1.  **Lựa chọn Streamlit thay vì NextJS/React cho MVP:**
-    *   *Lý do:* Rút ngắn thời gian phát triển giao diện xuống còn vài giờ thay vì vài ngày. Streamlit hỗ trợ sẵn các thành phần hiển thị bảng dữ liệu, chatbox, và biểu đồ rất mạnh mẽ bằng Python, giúp đồng bộ mã nguồn với backend dễ dàng.
-2.  **Lựa chọn LangGraph thay vì Agent thuần:**
-    *   *Lý do:* Nghiệp vụ tư vấn và đặt đơn hàng POD cần một quy trình chặt chẽ (định hướng luồng rõ ràng, xử lý clarification khi thiếu thông tin, chèn bước xác nhận của con người). LangGraph cung cấp cơ chế Graph Node/Edge giúp kiểm soát luồng hoạt động chuẩn xác hơn các agent hoạt động tự do (ReAct Loop) dễ bị lặp vô hạn.
+1.  **Lựa chọn React Vite + TypeScript + Vanilla CSS cho Frontend thay vì Streamlit:**
+    *   *Lý do:* Để đạt được trải nghiệm UI/UX chat hiện đại 3 cột, có sidebar lịch sử, banner bên phải hiển thị sản phẩm và Order HUD đồng bộ động, Streamlit hoàn toàn không hỗ trợ hoặc cực kỳ khó tùy biến css. Sử dụng Vite + React + Vanilla CSS mang lại tính linh hoạt cao nhất và nhẹ hơn NextJS khi dựng demo nhanh.
+2.  **Lựa chọn LangGraph làm Agent Orchestrator:**
+    *   *Lý do:* Nghiệp vụ tư vấn và đặt đơn hàng POD cần một quy trình chặt chẽ (định dạng slots, xử lý clarification khi thiếu thông tin, chèn bước xác nhận của con người - Human-in-the-loop). LangGraph cung cấp cơ chế State Machine bằng Graph giúp kiểm soát luồng chuẩn xác.
 3.  **Tách biệt Pricing Engine khỏi LLM:**
-    *   *Lý do:* Đảm bảo tính nhất quán dữ liệu tài chính. LLM rất yếu trong việc tính toán số thập phân phức tạp và dễ gặp hiện tượng ảo giác số. Bằng cách tính toán bằng Python trước, LLM chỉ đóng vai trò "người phát ngôn" đọc kết quả đã được tính chính xác.
-4.  **Sử dụng SQLite cho lưu trữ nội bộ:**
-    *   *Lý do:* Không yêu cầu cấu hình server database phức tạp trong môi trường chạy thử/hackathon. SQLite lưu trữ trực tiếp dưới dạng file trong thư mục dự án, dễ dàng sao lưu và di chuyển.
+    *   *Lý do:* Đảm bảo tính nhất quán dữ liệu tài chính. LLM dễ bị ảo giác số học. Do đó, Pricing Engine bằng Python thuần chịu trách nhiệm tính toán toàn bộ số liệu, LLM chỉ đóng vai trò thuyết minh.
+4.  **Sử dụng SQLite cho Database quan hệ & lưu Checkpoints:**
+    *   *Lý do:* Gọn nhẹ, không yêu cầu thiết lập container database cồng kềnh trong quá trình chạy thử hackathon. Dễ cấu hình migrations và backup.
+5.  **Tích hợp ChromaDB làm Vector DB cho Catalog RAG:**
+    *   *Lý do:* Tìm kiếm ngữ nghĩa vượt trội hơn so với lọc từ khóa thô, giúp hệ thống thân thiện với cách chat tự nhiên của Seller. ChromaDB rất nhẹ, chạy local không tốn tài nguyên.
