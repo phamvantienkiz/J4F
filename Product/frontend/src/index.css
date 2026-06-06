@@ -1,0 +1,195 @@
+@import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=JetBrains+Mono:wght@400;500;600&family=Outfit:wght@400;500;600;700;800&display=swap');
+
+:root {
+  /* Colors */
+  --primary-hsl: 220, 80%, 56%;
+  --primary: hsl(var(--primary-hsl));
+  --primary-glow: hsla(var(--primary-hsl), 0.35);
+  
+  --secondary-hsl: 262, 83%, 58%;
+  --secondary: hsl(var(--secondary-hsl));
+  --secondary-glow: hsla(var(--secondary-hsl), 0.35);
+
+  --bg-dark: hsl(224, 71%, 4%);
+  --card-bg: hsla(224, 71%, 8%, 0.65);
+  --card-bg-solid: hsl(224, 71%, 8%);
+  
+  --success: hsl(142, 76%, 36%);
+  --success-glow: hsla(142, 76%, 36%, 0.25);
+  
+  --warning: hsl(38, 92%, 50%);
+  --warning-glow: hsla(38, 92%, 50%, 0.25);
+  
+  --text-primary: #F8FAFC;
+  --text-secondary: #94A3B8;
+  --text-muted: #64748B;
+  
+  --border-light: rgba(255, 255, 255, 0.08);
+  --border-focus: rgba(37, 99, 235, 0.4);
+  --border-ai-focus: rgba(124, 58, 237, 0.4);
+
+  /* Fonts */
+  --font-heading: 'Outfit', 'Inter', system-ui, -apple-system, sans-serif;
+  --font-body: 'Inter', system-ui, -apple-system, sans-serif;
+  --font-code: 'JetBrains Mono', 'Fira Code', monospace;
+
+  /* Spacing */
+  --spacing-xs: 4px;
+  --spacing-sm: 8px;
+  --spacing-md: 16px;
+  --spacing-lg: 24px;
+  --spacing-xl: 32px;
+
+  /* Misc */
+  --radius-sm: 6px;
+  --radius-md: 12px;
+  --radius-lg: 18px;
+  --transition-fast: 0.15s ease;
+  --transition-normal: 0.25s cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+* {
+  box-sizing: border-box;
+  margin: 0;
+  padding: 0;
+}
+
+body {
+  background-color: var(--bg-dark);
+  color: var(--text-primary);
+  font-family: var(--font-body);
+  line-height: 1.5;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+  min-height: 100vh;
+  overflow-x: hidden;
+}
+
+/* Custom Scrollbars */
+::-webkit-scrollbar {
+  width: 6px;
+  height: 6px;
+}
+::-webkit-scrollbar-track {
+  background: rgba(255, 255, 255, 0.02);
+}
+::-webkit-scrollbar-thumb {
+  background: rgba(255, 255, 255, 0.1);
+  border-radius: 4px;
+}
+::-webkit-scrollbar-thumb:hover {
+  background: rgba(255, 255, 255, 0.2);
+}
+
+/* Glassmorphism Utilities */
+.glass {
+  background: var(--card-bg);
+  backdrop-filter: blur(12px) saturate(180%);
+  -webkit-backdrop-filter: blur(12px) saturate(180%);
+  border: 1px solid var(--border-light);
+  border-radius: var(--radius-md);
+}
+
+.glass-card {
+  background: hsla(224, 71%, 7%, 0.55);
+  backdrop-filter: blur(8px);
+  -webkit-backdrop-filter: blur(8px);
+  border: 1px solid var(--border-light);
+  border-radius: var(--radius-md);
+  transition: border-color var(--transition-fast), box-shadow var(--transition-fast);
+}
+
+/* Focus and Glow Effects */
+.glow-primary:focus-within {
+  border-color: var(--border-focus);
+  box-shadow: 0 0 15px var(--primary-glow);
+}
+
+.glow-secondary:focus-within {
+  border-color: var(--border-ai-focus);
+  box-shadow: 0 0 15px var(--secondary-glow);
+}
+
+/* Typography elements */
+h1, h2, h3, h4, h5, h6 {
+  font-family: var(--font-heading);
+  font-weight: 600;
+  letter-spacing: -0.02em;
+}
+
+/* Shimmer Animation */
+@keyframes shimmer {
+  0% {
+    background-position: -200% 0;
+  }
+  100% {
+    background-position: 200% 0;
+  }
+}
+
+.shimmer {
+  background: linear-gradient(90deg, 
+    rgba(255, 255, 255, 0.03) 25%, 
+    rgba(255, 255, 255, 0.08) 50%, 
+    rgba(255, 255, 255, 0.03) 75%
+  );
+  background-size: 200% 100%;
+  animation: shimmer 1.5s infinite;
+}
+
+/* Button & interactive components reset */
+button {
+  cursor: pointer;
+  border: none;
+  background: none;
+  font-family: inherit;
+  transition: all var(--transition-fast);
+}
+
+input, select, textarea {
+  font-family: inherit;
+  font-size: inherit;
+  color: inherit;
+  background: none;
+  border: none;
+  outline: none;
+}
+
+/* Global helper classes */
+.flex-center {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.text-gradient-primary {
+  background: linear-gradient(135deg, #60A5FA, var(--primary));
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+}
+
+.text-gradient-secondary {
+  background: linear-gradient(135deg, #C084FC, var(--secondary));
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+}
+
+/* Pulse animation for active AI indicators */
+@keyframes pulse-ring {
+  0% {
+    transform: scale(0.95);
+    box-shadow: 0 0 0 0 rgba(124, 58, 237, 0.5);
+  }
+  70% {
+    transform: scale(1);
+    box-shadow: 0 0 0 8px rgba(124, 58, 237, 0);
+  }
+  100% {
+    transform: scale(0.95);
+    box-shadow: 0 0 0 0 rgba(124, 58, 237, 0);
+  }
+}
+
+.pulse-indicator {
+  animation: pulse-ring 2s cubic-bezier(0.4, 0, 0.6, 1) infinite;
+}

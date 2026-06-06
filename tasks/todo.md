@@ -27,3 +27,23 @@
 - [x] 14. Create Dockerfile and Docker Compose settings for local deployment. → verify: Dockerfile and Docker Compose files are present and match settings.
 
 - [x] 15. Execute the Pre-Commit Verification Loop on the entire backend and AI codebase. → verify: Run `pytest` on all written code and confirm 100% success rate with no linting errors.
+
+- [x] 16. Initialize frontend Vite project with React and TypeScript in `Product/frontend/`. → verify: Confirm files `package.json`, `tsconfig.json` and `vite.config.ts` are generated in the `Product/frontend/` directory.
+
+- [x] 17. Configure `package.json` with scripts for `dev`, `build`, and `preview`, and install npm dependencies (`axios`, `lucide-react`, `canvas-confetti`, `@types/canvas-confetti` as devDependencies). → verify: Run `npm install` and confirm `node_modules/` is created without dependency conflicts.
+
+- [x] 18. Create global stylesheet `src/index.css` with CSS variables for the color system (Navy backdrop, electric blue, neon violet), Outfit & Inter fonts, and glassmorphic utility classes. → verify: Import CSS in entry point and verify no syntax errors during Vite compilation.
+
+- [x] 19. Implement API Client with Axios at `src/services/api.ts` including interceptors to automatically attach stored JWT access tokens to authorization headers. → verify: Inspect request headers on outgoing requests to confirm `Authorization: Bearer <token>` is sent.
+
+- [x] 20. Implement Authentication Context and a simple Login/Register UI with validation, blurred backdrop overlay, and local storage token management. → verify: Log in with mock credentials and confirm the token is successfully saved to `localStorage` and modal hides.
+
+- [x] 21. Implement Left Sidebar component displaying "New Chat" button, dynamic historical session list grouped by date, and User Preference modal. → verify: Confirm clicking "New Chat" calls API to create a new session and preference updates write back to SQLite via FastAPI `/api/v1/auth/preference`.
+
+- [x] 22. Implement Center Panel Chat component with auto-scroll and markdown parsing. Integrate a dynamic HTML/React candidate comparison table, highlighting Option 1 as "RECOMMENDED". → verify: Send a product query and check that the comparison table renders with correct highlight, color coding, and selectable rows.
+
+- [x] 23. Implement Right Panel displaying mockup images, product information specifications, and the checkout Order HUD. → verify: Confirm details dynamically update when selecting a quote option, and calculations show correct landed cost breakdown.
+
+- [x] 24. Implement Order Confirmation and success animations (Confetti) upon clicking "Confirm Fulfillment Order" via `POST /api/v1/order/confirm`. → verify: Confirm clicking CTA submits the order draft, locks the button, triggers confetti, and prints the generated Order ID and tracking details.
+
+- [x] 25. Perform full end-to-end integration and run tests verifying user registration, profile preference updates, multi-turn AI consultation, option selection, and successful order execution. → verify: Complete a standard user journey from login to final order receipt, checking for zero console errors and correct database persistence.
