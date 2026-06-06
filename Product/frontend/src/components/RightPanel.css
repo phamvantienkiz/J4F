@@ -59,7 +59,7 @@
 
 .mockup-display {
   height: 140px;
-  background: rgba(255, 255, 255, 0.01);
+  background: var(--mockup-display-bg);
   margin: var(--spacing-md);
   border-radius: var(--radius-md);
   border: 1px solid var(--border-light);
@@ -127,17 +127,17 @@
   font-weight: 600;
   color: var(--text-secondary);
   border: 1px solid var(--border-light);
-  background: rgba(255, 255, 255, 0.02);
+  background: var(--chip-bg);
 }
 
 .color-chip-btn:hover, .size-chip-btn:hover {
-  background: rgba(255, 255, 255, 0.06);
+  background: var(--chip-hover-bg);
   color: var(--text-primary);
 }
 
 .color-chip-btn.active, .size-chip-btn.active {
-  background: rgba(124, 58, 237, 0.15);
-  border-color: var(--secondary);
+  background: var(--chip-active-bg);
+  border-color: var(--primary);
   color: var(--text-primary);
 }
 
@@ -172,7 +172,7 @@
 
 .input-row input, .input-grid input {
   flex: 1;
-  background: rgba(255, 255, 255, 0.02);
+  background: var(--input-bg);
   border: 1px solid var(--border-light);
   border-radius: var(--radius-sm);
   padding: 8px 12px;
@@ -197,7 +197,7 @@
 .quantity-input {
   border: 1px solid var(--border-light);
   border-radius: var(--radius-sm);
-  background: rgba(255, 255, 255, 0.02);
+  background: var(--chip-bg);
   overflow: hidden;
 }
 
@@ -266,20 +266,20 @@
 }
 
 .confirm-order-btn {
-  background: linear-gradient(135deg, var(--primary), var(--secondary));
+  background: var(--btn-gradient);
   color: white;
   font-weight: 700;
   font-size: 13.5px;
   padding: 12px;
   border-radius: var(--radius-md);
   margin: 0 var(--spacing-md);
-  box-shadow: 0 4px 15px var(--secondary-glow);
+  box-shadow: 0 4px 15px var(--primary-glow);
 }
 
 .confirm-order-btn:hover:not(:disabled) {
   filter: brightness(1.1);
   transform: translateY(-0.5px);
-  box-shadow: 0 6px 20px var(--secondary-glow);
+  box-shadow: 0 6px 20px var(--primary-glow);
 }
 
 .confirm-order-btn:disabled {

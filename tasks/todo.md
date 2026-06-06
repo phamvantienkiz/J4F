@@ -69,3 +69,7 @@
 - [x] 35. Implement theme state management and add a Sun/Moon theme toggle button to the Sidebar header in `Product/frontend/src/components/Sidebar.tsx`. → verify: Toggle button functions, switches layout theme dynamically, and preserves preferences in `localStorage`.
 
 - [x] 36. Refine UI elements across components for optimal contrast and readability in Light Mode. → verify: Check that login modal, tables, inspector, and chat area maintain professional contrast and glassmorphism.
+
+- [x] 37. Refine dynamic color gradients and buttons in CSS files for high-contrast Light Mode. → verify: Gradients (welcome text h2, primary CTA buttons) remain clear and readable on light backgrounds.
+
+- [x] 38. Resolve style conflicts on tables, inputs, chips, and overlays for Light Mode. → verify: Table recommended highlights, active state indicators, overlay backdrops, and select options display with clear, accessible contrast (meeting WCAG standards).

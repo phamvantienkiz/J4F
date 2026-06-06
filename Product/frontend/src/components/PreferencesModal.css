@@ -110,7 +110,7 @@
 
 .pref-group select,
 .pref-input-wrapper {
-  background: rgba(255, 255, 255, 0.02);
+  background: var(--input-bg);
   border: 1px solid var(--border-light);
   border-radius: var(--radius-md);
   padding: 10px 14px;
@@ -123,8 +123,8 @@
 
 .pref-group select:focus,
 .pref-input-wrapper:focus-within {
-  border-color: var(--border-ai-focus);
-  box-shadow: 0 0 10px var(--secondary-glow);
+  border-color: var(--border-focus);
+  box-shadow: 0 0 10px var(--primary-glow);
 }
 
 .pref-input-wrapper {
@@ -171,7 +171,7 @@
 }
 
 .cancel-btn:hover {
-  background: rgba(255, 255, 255, 0.03);
+  background: var(--new-chat-btn-bg);
   color: var(--text-primary);
 }
 
@@ -181,8 +181,8 @@
   font-size: 13px;
   font-weight: 600;
   color: white;
-  background: linear-gradient(135deg, var(--primary), var(--secondary));
-  box-shadow: 0 2px 10px var(--secondary-glow);
+  background: var(--btn-gradient);
+  box-shadow: 0 2px 10px var(--primary-glow);
 }
 
 .save-btn:hover:not(:disabled) {

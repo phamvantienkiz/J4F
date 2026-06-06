@@ -31,6 +31,8 @@
   /* Theme-specific background configurations */
   --sidebar-bg: hsla(224, 71%, 5%, 0.9);
   --sidebar-footer-bg: hsla(224, 71%, 3%, 0.95);
+  --sidebar-active-bg: rgba(255, 255, 255, 0.08);
+  --new-chat-btn-bg: rgba(255, 255, 255, 0.03);
   
   --chat-header-bg: hsla(224, 71%, 4%, 0.5);
   --chat-bubble-user-bg: hsl(224, 71%, 12%);
@@ -38,9 +40,23 @@
   --chat-bubble-assistant-bg: hsla(224, 71%, 8%, 0.35);
   --chat-suggestions-bg: hsla(224, 71%, 3%, 0.35);
   --chat-input-container-bg: hsla(224, 71%, 4%, 0.8);
+  --welcome-title-gradient: linear-gradient(135deg, #FFF, var(--text-secondary));
+  --code-bg: rgba(255, 255, 255, 0.06);
+  --code-color: #F87171;
+  
+  --table-hover-bg: rgba(255, 255, 255, 0.01);
+  --table-best-bg: rgba(255, 91, 0, 0.04);
   
   --right-panel-bg: hsla(224, 71%, 5%, 0.85);
+  --mockup-display-bg: rgba(255, 255, 255, 0.01);
+  --chip-bg: rgba(255, 255, 255, 0.02);
+  --chip-hover-bg: rgba(255, 255, 255, 0.06);
+  --chip-active-bg: rgba(255, 91, 0, 0.15);
+  --input-bg: rgba(255, 255, 255, 0.02);
+  
+  --pref-tab-active-bg: rgba(255, 255, 255, 0.05);
   --overlay-bg: rgba(2, 6, 23, 0.7);
+  --btn-gradient: linear-gradient(135deg, var(--primary), #FF3E00);
 
   /* Fonts */
   --font-heading: 'Be Vietnam Pro', 'Outfit', 'Inter', system-ui, -apple-system, sans-serif;
@@ -84,6 +100,8 @@
   /* Light Theme Specific Components */
   --sidebar-bg: hsla(210, 20%, 90%, 0.95);
   --sidebar-footer-bg: hsla(210, 20%, 86%, 0.98);
+  --sidebar-active-bg: rgba(0, 0, 0, 0.06);
+  --new-chat-btn-bg: rgba(0, 0, 0, 0.02);
   
   --chat-header-bg: rgba(255, 255, 255, 0.55);
   --chat-bubble-user-bg: rgba(255, 91, 0, 0.08);
@@ -91,9 +109,23 @@
   --chat-bubble-assistant-bg: rgba(255, 255, 255, 0.8);
   --chat-suggestions-bg: rgba(0, 0, 0, 0.02);
   --chat-input-container-bg: rgba(255, 255, 255, 0.75);
+  --welcome-title-gradient: linear-gradient(135deg, #0F172A, var(--text-secondary));
+  --code-bg: rgba(0, 0, 0, 0.05);
+  --code-color: #C2410C;
+  
+  --table-hover-bg: rgba(0, 0, 0, 0.02);
+  --table-best-bg: rgba(255, 91, 0, 0.06);
   
   --right-panel-bg: hsla(210, 20%, 92%, 0.85);
+  --mockup-display-bg: rgba(0, 0, 0, 0.02);
+  --chip-bg: rgba(0, 0, 0, 0.02);
+  --chip-hover-bg: rgba(0, 0, 0, 0.06);
+  --chip-active-bg: rgba(255, 91, 0, 0.12);
+  --input-bg: rgba(0, 0, 0, 0.02);
+  
+  --pref-tab-active-bg: rgba(0, 0, 0, 0.05);
   --overlay-bg: rgba(15, 23, 42, 0.45);
+  --btn-gradient: linear-gradient(135deg, var(--primary), #E04F00);
 }
 
 * {
