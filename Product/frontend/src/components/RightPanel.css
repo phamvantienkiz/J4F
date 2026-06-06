@@ -2,7 +2,7 @@
   width: 100%;
   height: 100%;
   border-left: 1px solid var(--border-light);
-  background: hsla(224, 71%, 5%, 0.85);
+  background: var(--right-panel-bg);
   overflow-y: auto;
 }
 

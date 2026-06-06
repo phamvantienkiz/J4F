@@ -12,7 +12,7 @@
   padding: var(--spacing-md);
   border-bottom: 1px solid var(--border-light);
   justify-content: flex-start;
-  background: hsla(224, 71%, 4%, 0.5);
+  background: var(--chat-header-bg);
   backdrop-filter: blur(5px);
   z-index: 10;
 }
@@ -153,14 +153,14 @@
 }
 
 .chat-bubble.user {
-  background: hsl(224, 71%, 12%);
-  border: 1px solid rgba(37, 99, 235, 0.2);
+  background: var(--chat-bubble-user-bg);
+  border: 1px solid var(--chat-bubble-user-border);
   color: var(--text-primary);
   border-bottom-right-radius: var(--radius-sm);
 }
 
 .chat-bubble.assistant {
-  background: hsla(224, 71%, 8%, 0.35);
+  background: var(--chat-bubble-assistant-bg);
   border: 1px solid var(--border-light);
   color: var(--text-primary);
   border-bottom-left-radius: var(--radius-sm);
@@ -272,7 +272,7 @@
   justify-content: flex-start;
   flex-wrap: wrap;
   border-top: 1px solid var(--border-light);
-  background: hsla(224, 71%, 3%, 0.35);
+  background: var(--chat-suggestions-bg);
 }
 
 .suggestion-chip {
@@ -295,7 +295,7 @@
 /* Input layout */
 .chat-input-container {
   padding: var(--spacing-md) var(--spacing-lg) var(--spacing-lg);
-  background: hsla(224, 71%, 4%, 0.8);
+  background: var(--chat-input-container-bg);
 }
 
 .chat-form-input {

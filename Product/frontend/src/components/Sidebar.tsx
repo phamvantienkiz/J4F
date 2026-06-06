@@ -3,7 +3,7 @@ import { useAuth } from '../context/AuthContext';
 import { chatApi } from '../services/api';
 import type { ConversationResponse } from '../services/api';
 import { PreferencesModal } from './PreferencesModal';
-import { Plus, MessageSquare, LogOut, Settings, User, Terminal, Calendar } from 'lucide-react';
+import { Plus, MessageSquare, LogOut, Settings, User, Terminal, Calendar, Sun, Moon } from 'lucide-react';
 import './Sidebar.css';
 
 interface SidebarProps {
@@ -21,6 +21,19 @@ export const Sidebar: React.FC<SidebarProps> = ({
   const [conversations, setConversations] = useState<ConversationResponse[]>([]);
   const [isPrefOpen, setIsPrefOpen] = useState<boolean>(false);
   const [loading, setLoading] = useState<boolean>(false);
+
+  const [theme, setTheme] = useState<'light' | 'dark'>(() => {
+    return (localStorage.getItem('theme') as 'light' | 'dark') || 'dark';
+  });
+
+  useEffect(() => {
+    document.documentElement.setAttribute('data-theme', theme);
+    localStorage.setItem('theme', theme);
+  }, [theme]);
+
+  const toggleTheme = () => {
+    setTheme((prev) => (prev === 'light' ? 'dark' : 'light'));
+  };
 
   const fetchConversations = async () => {
     try {
@@ -97,9 +110,19 @@ export const Sidebar: React.FC<SidebarProps> = ({
   return (
     <aside className="sidebar glass flex-col">
       {/* Header logo */}
-      <div className="sidebar-header flex-center">
-        <Terminal className="sidebar-logo-icon" />
-        <h2 className="sidebar-logo-text text-gradient-secondary">Burger Agent</h2>
+      <div className="sidebar-header flex-center" style={{ justifyContent: 'space-between', width: '100%' }}>
+        <div className="flex-center" style={{ gap: 'var(--spacing-sm)' }}>
+          <Terminal className="sidebar-logo-icon" />
+          <h2 className="sidebar-logo-text text-gradient-secondary">Burger Agent</h2>
+        </div>
+        <button
+          type="button"
+          className="theme-toggle-btn flex-center"
+          onClick={toggleTheme}
+          title={theme === 'light' ? 'Chuyển sang Chế độ Tối' : 'Chuyển sang Chế độ Sáng'}
+        >
+          {theme === 'light' ? <Moon size={15} /> : <Sun size={15} />}
+        </button>
       </div>
 
       {/* New chat button */}

@@ -61,3 +61,11 @@
 - [x] 31. Correct `.chat-area` and `.chat-messages` flex dimensions in `Product/frontend/src/components/ChatArea.css`. → verify: Confirm `.chat-messages` scroll vertically and input box remains visible at the bottom of the screen.
 
 - [x] 32. Adjust width limits on chat bubbles containing large tables in `Product/frontend/src/components/ChatArea.css`. → verify: Boulders containing tables expand to full width if needed, table wrapper handles overflow scroll horizontally, and no panels are pushed offscreen.
+
+- [x] 33. Import `Be Vietnam Pro` font and redefine variables for BurgerPrints brand identity (Orange primary, Blue secondary) in `Product/frontend/src/index.css`. → verify: Confirm custom theme styles apply and use brand orange `#FF5B00` and blue `#0052CC`.
+
+- [x] 34. Implement Light Mode CSS variables using `:root[data-theme="light"]` in `Product/frontend/src/index.css`. → verify: Verify color properties like text, backgrounds, and borders adapt correctly when attribute is toggled.
+
+- [x] 35. Implement theme state management and add a Sun/Moon theme toggle button to the Sidebar header in `Product/frontend/src/components/Sidebar.tsx`. → verify: Toggle button functions, switches layout theme dynamically, and preserves preferences in `localStorage`.
+
+- [x] 36. Refine UI elements across components for optimal contrast and readability in Light Mode. → verify: Check that login modal, tables, inspector, and chat area maintain professional contrast and glassmorphism.

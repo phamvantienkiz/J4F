@@ -1,12 +1,12 @@
-@import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=JetBrains+Mono:wght@400;500;600&family=Outfit:wght@400;500;600;700;800&display=swap');
+@import url('https://fonts.googleapis.com/css2?family=Be+Vietnam+Pro:wght@300;400;500;600;700;800&family=Inter:wght@300;400;500;600;700&family=JetBrains+Mono:wght@400;500;600&family=Outfit:wght@400;500;600;700;800&display=swap');
 
 :root {
-  /* Colors */
-  --primary-hsl: 220, 80%, 56%;
+  /* Colors (BurgerPrints Style: Orange Primary & Cobalt Blue Secondary) */
+  --primary-hsl: 21, 100%, 50%; /* #FF5B00 - Brand Orange */
   --primary: hsl(var(--primary-hsl));
   --primary-glow: hsla(var(--primary-hsl), 0.35);
   
-  --secondary-hsl: 262, 83%, 58%;
+  --secondary-hsl: 216, 100%, 40%; /* #0052CC - Brand Blue */
   --secondary: hsl(var(--secondary-hsl));
   --secondary-glow: hsla(var(--secondary-hsl), 0.35);
 
@@ -25,11 +25,25 @@
   --text-muted: #64748B;
   
   --border-light: rgba(255, 255, 255, 0.08);
-  --border-focus: rgba(37, 99, 235, 0.4);
-  --border-ai-focus: rgba(124, 58, 237, 0.4);
+  --border-focus: rgba(255, 91, 0, 0.4);
+  --border-ai-focus: rgba(0, 82, 204, 0.4);
+
+  /* Theme-specific background configurations */
+  --sidebar-bg: hsla(224, 71%, 5%, 0.9);
+  --sidebar-footer-bg: hsla(224, 71%, 3%, 0.95);
+  
+  --chat-header-bg: hsla(224, 71%, 4%, 0.5);
+  --chat-bubble-user-bg: hsl(224, 71%, 12%);
+  --chat-bubble-user-border: rgba(255, 91, 0, 0.2);
+  --chat-bubble-assistant-bg: hsla(224, 71%, 8%, 0.35);
+  --chat-suggestions-bg: hsla(224, 71%, 3%, 0.35);
+  --chat-input-container-bg: hsla(224, 71%, 4%, 0.8);
+  
+  --right-panel-bg: hsla(224, 71%, 5%, 0.85);
+  --overlay-bg: rgba(2, 6, 23, 0.7);
 
   /* Fonts */
-  --font-heading: 'Outfit', 'Inter', system-ui, -apple-system, sans-serif;
+  --font-heading: 'Be Vietnam Pro', 'Outfit', 'Inter', system-ui, -apple-system, sans-serif;
   --font-body: 'Inter', system-ui, -apple-system, sans-serif;
   --font-code: 'JetBrains Mono', 'Fira Code', monospace;
 
@@ -46,6 +60,40 @@
   --radius-lg: 18px;
   --transition-fast: 0.15s ease;
   --transition-normal: 0.25s cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+:root[data-theme="light"] {
+  --bg-dark: hsl(210, 20%, 96%); /* Light Slate background */
+  --card-bg: rgba(255, 255, 255, 0.7); /* White translucent card background */
+  --card-bg-solid: hsl(0, 0%, 100%); /* Pure white card solid background */
+  
+  --text-primary: hsl(220, 40%, 10%); /* Dark gray-blue text */
+  --text-secondary: hsl(215, 20%, 35%); /* Medium gray-blue text */
+  --text-muted: hsl(215, 12%, 55%); /* Muted slate gray text */
+  
+  --border-light: rgba(0, 0, 0, 0.08); /* Dark semi-transparent border */
+  --border-focus: rgba(255, 91, 0, 0.5); /* Brand orange outline */
+  --border-ai-focus: rgba(0, 82, 204, 0.5); /* Brand blue outline */
+  
+  --success: hsl(142, 76%, 28%);
+  --success-glow: hsla(142, 76%, 28%, 0.15);
+  
+  --warning: hsl(38, 92%, 40%);
+  --warning-glow: hsla(38, 92%, 40%, 0.15);
+
+  /* Light Theme Specific Components */
+  --sidebar-bg: hsla(210, 20%, 90%, 0.95);
+  --sidebar-footer-bg: hsla(210, 20%, 86%, 0.98);
+  
+  --chat-header-bg: rgba(255, 255, 255, 0.55);
+  --chat-bubble-user-bg: rgba(255, 91, 0, 0.08);
+  --chat-bubble-user-border: rgba(255, 91, 0, 0.2);
+  --chat-bubble-assistant-bg: rgba(255, 255, 255, 0.8);
+  --chat-suggestions-bg: rgba(0, 0, 0, 0.02);
+  --chat-input-container-bg: rgba(255, 255, 255, 0.75);
+  
+  --right-panel-bg: hsla(210, 20%, 92%, 0.85);
+  --overlay-bg: rgba(15, 23, 42, 0.45);
 }
 
 * {
@@ -91,7 +139,7 @@ body {
 }
 
 .glass-card {
-  background: hsla(224, 71%, 7%, 0.55);
+  background: var(--card-bg);
   backdrop-filter: blur(8px);
   -webkit-backdrop-filter: blur(8px);
   border: 1px solid var(--border-light);
