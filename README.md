@@ -16,17 +16,18 @@ Sử dụng đồ thị LangGraph với checkpointer lưu trữ trạng thái v�
 graph TD
     Start([Bắt đầu]) --> Intent[extract_intent_node]
     Intent --> Router{Router}
-    
+
     Router -- "Thiếu thông tin phôi/thị trường" --> Clarify[clarify_node]
     Clarify --> End([Kết thúc / Đợi phản hồi])
-    
+
     Router -- "Đủ thông tin yêu cầu" --> Retrieve[retrieve_catalog_node]
     Retrieve --> Price[calculate_pricing_node]
     Price --> Rank[rank_and_recommend_node]
     Rank --> End
-    
+
     Router -- "Xác nhận đặt đơn nháp" --> Execute[execute_order_node]
     Execute --> End
+
 ```
 
 ### 1.2. Sơ đồ Luồng Dữ Liệu RAG (Semantic Memory Recall)
@@ -37,6 +38,7 @@ Mỗi tin nhắn hội thoại của Seller đều được nhúng (embed) bằn
 [Seller Chat Input] ──> [Gemini Embedding 2 (3072 dims)] ──> [ChromaDB query]
                                                                   │
 [Agent State (NLU)] <─── [Merge Contextual Requirements] <────────┘
+
 ```
 
 ---
@@ -46,23 +48,26 @@ Mỗi tin nhắn hội thoại của Seller đều được nhúng (embed) bằn
 Hệ thống được chia làm 3 tầng chức năng rõ rệt trong thư mục [Product/](file:///E:/Hackathon2026/J4F/Product):
 
 ### 2.1. Phân Hệ AI Agent ([Product/ai/](file:///E:/Hackathon2026/J4F/Product/ai/))
-* **LangGraph Agent Workflow (`agent.py`, `nodes.py`, `state.py`)**: Điều phối luồng xử lý hội thoại dựa trên trạng thái.
-* **Pricing Engine (`pricing_engine.py`)**: Động cơ tính toán tài chính chi tiết:
-  * **Landed Cost**: `Base Cost + Printing Cost + Shipping Fee + Tax (8% cho US, 19% cho EU, 0% cho VN)`.
-  * **Suggested Retail Price**: Đề xuất giá bán lẻ tối ưu dựa trên tỷ lệ biên lợi nhuận mục tiêu (`target_margin`).
-  * **SLA Delivery Risk**: Chấm điểm rủi ro chậm giao hàng dựa trên khoảng cách địa lý và thời gian xử lý thực tế của xưởng.
-* **Semantic Memory RAG (`vector_rag.py`)**: Lưu trữ và tìm kiếm hồi tưởng lịch sử hội thoại dạng ngữ nghĩa sử dụng ChromaDB.
-* **BurgerPrints Wrapper (`tools.py`)**: Bộ chuyển đổi tích hợp API chính thức của BurgerPrints (Catalog, Quotes, Orders) kèm cơ chế Mock fallback để demo.
+
+- **LangGraph Agent Workflow (`agent.py`, `nodes.py`, `state.py`)**: Điều phối luồng xử lý hội thoại dựa trên trạng thái.
+- **Pricing Engine (`pricing_engine.py`)**: Động cơ tính toán tài chính chi tiết:
+  - **Landed Cost**: `Base Cost + Printing Cost + Shipping Fee + Tax (8% cho US, 19% cho EU, 0% cho VN)`.
+  - **Suggested Retail Price**: Đề xuất giá bán lẻ tối ưu dựa trên tỷ lệ biên lợi nhuận mục tiêu (`target_margin`).
+  - **SLA Delivery Risk**: Chấm điểm rủi ro chậm giao hàng dựa trên khoảng cách địa lý và thời gian xử lý thực tế của xưởng.
+- **Semantic Memory RAG (`vector_rag.py`)**: Lưu trữ và tìm kiếm hồi tưởng lịch sử hội thoại dạng ngữ nghĩa sử dụng ChromaDB.
+- **BurgerPrints Wrapper (`tools.py`)**: Bộ chuyển đổi tích hợp API chính thức của BurgerPrints (Catalog, Quotes, Orders) kèm cơ chế Mock fallback để demo.
 
 ### 2.2. FastAPI Backend Gateway ([Product/backend/](file:///E:/Hackathon2026/J4F/Product/backend/))
-* Tích hợp Authentication (Bcrypt password hashing, JWT Access token) bảo mật RESTful.
-* Quản lý phiên hội thoại (`conversations`), lịch sử trò chuyện (`messages`) và trạng thái đơn hàng (`order_history`) lưu trữ trong cơ sở dữ liệu SQLite thông qua SQLAlchemy ORM bất đồng bộ.
-* Tách biệt tầng API Endpoint (`api/v1/`) và tầng nghiệp vụ điều phối (`services/`).
+
+- Tích hợp Authentication (Bcrypt password hashing, JWT Access token) bảo mật RESTful.
+- Quản lý phiên hội thoại (`conversations`), lịch sử trò chuyện (`messages`) và trạng thái đơn hàng (`order_history`) lưu trữ trong cơ sở dữ liệu SQLite thông qua SQLAlchemy ORM bất đồng bộ.
+- Tách biệt tầng API Endpoint (`api/v1/`) và tầng nghiệp vụ điều phối (`services/`).
 
 ### 2.3. Glassmorphic React Web App ([Product/frontend/](file:///E:/Hackathon2026/J4F/Product/frontend/))
-* Giao diện phong cách Glassmorphism hiện đại (electric blue, neon violet, navy backdrop).
-* Tích hợp bảng so sánh đề xuất so sánh trực quan (so sánh Landed Cost, Margin, Shipping SLA) làm nổi bật nhà in tối ưu.
-* Tích hợp Order HUD hiển thị thông tin mockup và lên đơn hàng nháp thời gian thực, kích hoạt hiệu ứng Confetti chúc mừng khi đơn hàng được gửi thành công.
+
+- Giao diện phong cách Glassmorphism hiện đại (electric blue, neon violet, navy backdrop).
+- Tích hợp bảng so sánh đề xuất so sánh trực quan (so sánh Landed Cost, Margin, Shipping SLA) làm nổi bật nhà in tối ưu.
+- Tích hợp Order HUD hiển thị thông tin mockup và lên đơn hàng nháp thời gian thực, kích hoạt hiệu ứng Confetti chúc mừng khi đơn hàng được gửi thành công.
 
 ---
 
@@ -149,7 +154,7 @@ Hệ thống khuyến khích sử dụng trình quản lý gói siêu tốc **`u
    ```bash
    uv run uvicorn backend.main:app --host 0.0.0.0 --port 8000 --reload
    ```
-   *Swagger UI sẽ tự động khởi chạy tại: [http://localhost:8000/docs](http://localhost:8000/docs)*
+   _Swagger UI sẽ tự động khởi chạy tại: [http://localhost:8000/docs](http://localhost:8000/docs)_
 
 ### 5.2. Khởi Chạy Frontend (React SPA)
 
@@ -165,7 +170,7 @@ Hệ thống khuyến khích sử dụng trình quản lý gói siêu tốc **`u
    ```bash
    npm run dev
    ```
-   *Giao diện người dùng sẽ chạy tại: [http://localhost:5173](http://localhost:5173)*
+   _Giao diện người dùng sẽ chạy tại: [http://localhost:5173](http://localhost:5173)_
 
 ---
 
@@ -179,7 +184,7 @@ Hệ thống khuyến khích sử dụng trình quản lý gói siêu tốc **`u
    cd Product
    docker-compose up --build
    ```
-FastAPI Gateway sẽ tự động lắng nghe ở cổng `8000`, và giao diện tĩnh sẽ được kết nối.
+   FastAPI Gateway sẽ tự động lắng nghe ở cổng `8000`, và giao diện tĩnh sẽ được kết nối.
 
 ---
 
@@ -188,13 +193,15 @@ FastAPI Gateway sẽ tự động lắng nghe ở cổng `8000`, và giao diện
 Hệ thống được phát triển tuân thủ nghiêm ngặt chuẩn kiểm thử chất lượng cao.
 
 Để chạy bộ kiểm thử toàn diện bằng `pytest`:
+
 1. Di chuyển vào thư mục `Product/`.
 2. Chạy lệnh kiểm thử sau (đảm bảo đã nạp `PYTHONPATH`):
    ```bash
    $env:PYTHONPATH="."; uv run pytest
    ```
-Kết quả kiểm thử thực thi thành công hoàn toàn **13/13 tests passed**:
-* Kiểm thử logic giá vốn & rủi ro SLA vận chuyển (`test_pricing.py`).
-* Kiểm thử dịch chuyển trạng thái đồ thị LangGraph (`test_agent.py`).
-* Kiểm thử bảo mật mã hóa mật khẩu & giải mã khóa JWT (`test_security.py`).
-* Kiểm thử tích hợp toàn trình API Gateway hội thoại (`test_api.py`).
+   Kết quả kiểm thử thực thi thành công hoàn toàn **13/13 tests passed**:
+
+- Kiểm thử logic giá vốn & rủi ro SLA vận chuyển (`test_pricing.py`).
+- Kiểm thử dịch chuyển trạng thái đồ thị LangGraph (`test_agent.py`).
+- Kiểm thử bảo mật mã hóa mật khẩu & giải mã khóa JWT (`test_security.py`).
+- Kiểm thử tích hợp toàn trình API Gateway hội thoại (`test_api.py`).
