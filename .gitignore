@@ -1,0 +1,15 @@
+.env
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.venv/
+venv/
+.env.local
+.DS_Store
+.claude/
+.vite/
+frontend/node_modules/
+frontend/dist/
+*.tsbuildinfo
+node_modules/
+dist/
