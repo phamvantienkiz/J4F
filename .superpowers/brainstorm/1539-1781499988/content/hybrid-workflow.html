@@ -1,0 +1,105 @@
+<h2>Thiết kế Luồng State-Driven Function Calling (Hybrid Workflow)</h2>
+<p class="subtitle">Giải pháp kết hợp Quản lý Trạng thái Hội thoại và Trích xuất Dữ liệu Định kiểu (Pydantic)</p>
+
+<div class="section">
+  <h3>1. Sơ đồ Hoạt động của Hybrid Workflow</h3>
+  <div class="mockup" style="background: var(--bg-card); padding: 20px; border-radius: 8px; border: 1px solid var(--border-color); font-family: monospace; line-height: 1.6; font-size: 13px;">
+
+    <!-- Các State của hệ thống -->
+    <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 25px; text-align: center;">
+
+      <div style="background: #475569; color: white; padding: 10px; border-radius: 6px; width: 18%;">
+        <strong>1. IDLE</strong><br>
+        <span style="font-size: 10px; color: #cbd5e1;">Chờ câu hỏi</span>
+      </div>
+
+      <div style="font-size: 16px; color: #94a3b8;">➔</div>
+
+      <div style="background: #2563eb; color: white; padding: 10px; border-radius: 6px; width: 22%; position: relative;">
+        <strong>2. PARSING</strong><br>
+        <span style="font-size: 10px; color: #bfdbfe;">Trích xuất Pydantic</span>
+      </div>
+
+      <div style="font-size: 16px; color: #94a3b8;">➔</div>
+
+      <div style="background: #d97706; color: white; padding: 10px; border-radius: 6px; width: 25%;">
+        <strong>3. STATE VALIDATOR</strong><br>
+        <span style="font-size: 10px; color: #fef3c7;">Kiểm tra thiếu thông tin?</span>
+      </div>
+
+      <div style="font-size: 16px; color: #94a3b8;">➔</div>
+
+      <div style="background: #059669; color: white; padding: 10px; border-radius: 6px; width: 22%;">
+        <strong>4. EXECUTION</strong><br>
+        <span style="font-size: 10px; color: #a7f3d0;">Chạy Code Python</span>
+      </div>
+
+    </div>
+
+    <!-- Chi tiết giải quyết tình huống -->
+    <div style="border-top: 1px solid var(--border-color); padding-top: 15px;">
+      <strong style="color: #2563eb;">📌 Ví dụ 1: Người dùng thiếu Giá Bán (selling_price) khi hỏi về Margin</strong>
+      <ul style="margin-left: 20px; margin-top: 5px; padding-left: 0;">
+        <li>User: <i>"Tính lợi nhuận cho tôi nếu lấy Hoodie xưởng US East."</i></li>
+        <li><strong>Parsing State:</strong> Trích xuất được <code style="background:rgba(0,0,0,0.05); padding: 2px;">intent="calculate_margin"</code>, <code style="background:rgba(0,0,0,0.05); padding: 2px;">product_type="Hoodie"</code>, <code style="background:rgba(0,0,0,0.05); padding: 2px;">location="US East"</code>, nhưng <code style="background:rgba(0,0,0,0.05); padding: 2px;">selling_price=None</code>.</li>
+        <li><strong>State Validator:</strong> Phát hiện thiếu <code style="background:rgba(0,0,0,0.05); padding: 2px;">selling_price</code>. Hệ thống chuyển State sang <code style="background:rgba(0,0,0,0.05); padding: 2px;">WAITING_FOR_SELLING_PRICE</code>.</li>
+        <li><strong>AI Response:</strong> Trả lời: <i>"Để tính lợi nhuận chính xác cho dòng Hoodie ở xưởng US East, bạn định bán lẻ sản phẩm này với giá bao nhiêu USD?"</i></li>
+        <li>User trả lời tiếp: <i>"24.99 đô"</i> ➔ Parse được <code style="background:rgba(0,0,0,0.05); padding: 2px;">selling_price=24.99</code> ➔ Điền vào State ➔ Chuyển qua <strong>EXECUTION</strong> để tính toán ngay lập tức.</li>
+      </ul>
+    </div>
+
+  </div>
+</div>
+
+<div class="section">
+  <h3>2. Pydantic Models & Khả năng Mở rộng Thuế (Tax Integration)</h3>
+  <p class="subtitle">Định nghĩa cấu trúc Model rõ ràng giúp dễ dàng cắm thêm (plug-in) các module tính toán thuế hoặc chi phí khác:</p>
+
+  <div style="background: var(--bg-card); border: 1px solid var(--border-color); padding: 15px; border-radius: 8px; font-family: monospace; font-size: 12px; line-height: 1.5; color: var(--text-color);">
+    <span style="color: #64748b;"># Schema lưu trữ đầy đủ thông tin từ API BurgerPrints phục vụ lọc & tính toán</span><br>
+    <span style="color: #2563eb;">class</span> <span style="color: #0f172a; font-weight: bold;">FulfillmentItem</span>(BaseModel):<br>
+    &nbsp;&nbsp;&nbsp;&nbsp;catalog_sku: str<br>
+    &nbsp;&nbsp;&nbsp;&nbsp;base_cost: float<br>
+    &nbsp;&nbsp;&nbsp;&nbsp;shipping_cost: float<br>
+    &nbsp;&nbsp;&nbsp;&nbsp;additional_shipping_cost: float<br>
+    &nbsp;&nbsp;&nbsp;&nbsp;second_side_price: float = 0.0<br>
+    &nbsp;&nbsp;&nbsp;&nbsp;processing_time: str<br>
+    &nbsp;&nbsp;&nbsp;&nbsp;location_name: str<br>
+    <br>
+    <span style="color: #64748b;"># Công thức tính Margin có thể mở rộng thuế (Tax) dễ dàng</span><br>
+    <span style="color: #2563eb;">class</span> <span style="color: #0f172a; font-weight: bold;">MarginCalculator</span>:<br>
+    &nbsp;&nbsp;&nbsp;&nbsp;<span style="color: #2563eb;">def</span> <span style="color: #0f172a; font-weight: bold;">calculate</span>(self, item: FulfillmentItem, selling_price: float, qty: int = 1, <span style="color: #ef4444; font-weight: bold;">tax_rate: float = 0.0</span>) -> dict:<br>
+    &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;shipping_fee = item.shipping_cost + (qty - 1) * item.additional_shipping_cost<br>
+    &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;fulfillment_cost = (item.base_cost * qty) + shipping_fee<br>
+    &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;revenue = selling_price * qty<br>
+    &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;<br>
+    &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;<span style="color: #64748b;"># ➕ Tích hợp Thuế (Ví dụ: Thuế bang/quốc gia dựa trên điểm ship)</span><br>
+    &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;<span style="color: #ef4444; font-weight: bold;">tax_amount = fulfillment_cost * tax_rate</span> <span style="color: #64748b;"># Hoặc tính dựa trên giá bán tùy nghiệp vụ</span><br>
+    &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;total_cost = fulfillment_cost + tax_amount<br>
+    &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;<br>
+    &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;profit = revenue - total_cost<br>
+    &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;margin_percentage = (profit / revenue) * 100 if revenue > 0 else 0.0<br>
+    &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;return {<br>
+    &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;"revenue": revenue,<br>
+    &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;"fulfillment_cost": fulfillment_cost,<br>
+    &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;"tax_amount": tax_amount,<br>
+    &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;"total_cost": total_cost,<br>
+    &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;"profit": profit,<br>
+    &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;"margin_percentage": margin_percentage<br>
+    &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;}<br>
+  </div>
+</div>
+
+<div class="section">
+  <h3>3. Ưu điểm của State-Driven Function Calling</h3>
+  <div class="pros-cons">
+    <div class="pros">
+      <h4>Tại sao phương án này Tốt?</h4>
+      <ul>
+        <li><strong>Không bao giờ mất dấu (Context aware):</strong> LangGraph quản lý cuộc gọi State nên biết chính xác user đang ở bước nào (ví dụ: đã biết SKU, chỉ chờ nhập Giá Bán).</li>
+        <li><strong>Chính xác toán học:</strong> Logic tính toán hoàn toàn do Python Class thực hiện, đảm bảo kết quả là tuyệt đối (không bị LLM ảo tưởng số).</li>
+        <li><strong>Phản hồi siêu nhanh:</strong> Khi user cung cấp thông tin thiếu, LLM chỉ cần parse số và chạy hàm Python. Không tốn thời gian "suy nghĩ" luẩn quẩn.</li>
+      </ul>
+    </div>
+  </div>
+</div>

@@ -1,225 +1,105 @@
-# 🍔 BurgerPrints Agent - Trợ lý Đối chiếu & Tạo Đơn Fulfillment (Text-to-API)
+# BurgerPrints POD Catalog Assistant (AI Agent)
 
-> Hệ thống conversational AI multi-agent giúp người bán (seller) POD chuyển đổi các yêu cầu bằng ngôn ngữ tự nhiên (tiếng Việt/tiếng Anh) thành các lệnh gọi API BurgerPrints v2.0, tự động xếp hạng SKU/supplier, tính toán biên lợi nhuận và hỗ trợ tạo đơn hàng sandbox an toàn.
+Dự án này là một hệ thống AI Chatbot hội thoại (State-driven Agent) tích hợp với API BurgerPrints v2.0 nhằm hỗ trợ những nhà bán hàng (Sellers) tìm kiếm, so sánh sản phẩm fulfill, tính toán landed cost/margin, gợi ý theo mùa vụ/vùng miền và tạo đơn hàng nháp trực tiếp từ các cuộc trò chuyện tự nhiên.
 
-**Trạng thái dự án:** ✅ MVP Hoàn thiện | **Công nghệ:** Python 3.11+, FastAPI, LangGraph, React + Vite + TS
+## 🚀 Tính Năng Chính
 
----
-
-## 📋 Mục lục
-- [1. Giới thiệu tổng quan](#1-giới thiệu-tổng-quan)
-- [2. Các tính năng chính](#2-các-tính-năng-chính)
-- [3. Hướng dẫn cài đặt nhanh (Quick Start)](#3-hướng-dẫn-cài-đặt-nhanh-quick-start)
-- [4. Kiến trúc hệ thống & Luồng xử lý](#4-kiến-trúc-hệ-thống--luồng-xử-lý)
-- [5. Hướng dẫn chạy thử nghiệm (Smoke Tests)](#5-hướng-dẫn-chạy-thử-nghiệm-smoke-tests)
-- [6. Quy tắc an toàn & Bảo mật](#6-quy-tắc-an-toàn--bảo-mật)
-- [7. Cấu trúc thư mục dự án](#7-cấu-trúc-thư-mục-dự-án)
-- [8. Đóng góp & Phát triển tính năng mới](#8-đóng-góp--phát-triển-tính-năng-mới)
-
----
-
-## 🎯 1. Giới thiệu tổng quan
-
-**BurgerPrints Agent** giải quyết bài toán cốt lõi của seller Print-On-Demand (POD):
-- Tìm kiếm nhanh SKU phù hợp nhất theo ngân sách (base cost), thời gian giao hàng (delivery time) và quốc gia giao hàng (destination market).
-- Tính toán chính xác lợi nhuận gộp (gross margin) theo từng platform (Etsy, Shopify, Amazon, TikTok, Generic) sau khi trừ chi phí sản xuất, vận chuyển và phí sàn.
-- Tạo nhanh đơn hàng thử nghiệm (sandbox draft) trực tiếp qua cổng chat mà không cần thao tác thủ công trên dashboard của BurgerPrints.
-
-**Ví dụ thực tế:**
-> *Seller:* "Tôi muốn bán 2 áo T-shirt cho thị trường Mỹ, giá vốn dưới $8, ship dưới 5 ngày, chọn xưởng nào, SKU nào?"
-> *Agent:* Gọi Catalog API lấy danh sách variants, áp bộ lọc, tính toán vận chuyển cho 2 sản phẩm, xếp hạng theo SLA và trả về bảng so sánh chi tiết giữa các xưởng, kèm gợi ý tạo sandbox order.
+1. **Đồng Bộ Dữ Liệu Offline-First:** 
+   - Đồng bộ hóa định kỳ (mỗi 6 giờ) thông tin sản phẩm, biến thể (variants) và biểu phí vận chuyển từ BurgerPrints API về cơ sở dữ liệu để đảm bảo tốc độ truy xuất cực nhanh.
+2. **AI Agent Trợ Lý Thông Minh (State-Driven Agent):**
+   - Hỗ trợ hội thoại đa lượt bằng cách lưu giữ ngữ cảnh cuộc trò chuyện (`ChatSession`).
+   - Sử dụng cơ chế **Slot Filling** để nhận diện và thu thập các thông tin còn thiếu từ người dùng (như quốc gia, loại sản phẩm, ngân sách, v.v.).
+3. **Tính Toán Chi Phí Chi Tiết (Landed Cost & Profit Margin):**
+   - Tự động áp dụng công thức tính Landed Cost: `Landed Cost = Base Cost * Quantity + Shipping Fee + Tax Fee`
+   - Tính toán chi tiết lợi nhuận (`Profit`) và tỷ suất lợi nhuận (`Margin %`) dựa trên giá bán đề xuất của seller.
+   - Hỗ trợ chế độ cảnh báo nếu Margin thực tế thấp hơn Margin tiêu chuẩn của seller.
+4. **Hệ Thống Gợi Ý Theo Mùa Vụ & Vùng Miền (Regional & Seasonal Suggestion):**
+   - Đưa ra khuyến nghị sản phẩm phù hợp theo từng quốc gia (Mỹ - US, Đức - DE, Việt Nam - VN...) và tháng lựa chọn dựa trên yếu tố thời tiết và các sự kiện lễ hội lớn (như Giáng sinh, Halloween, Quốc khánh...).
+   - **Tự động nhận diện ngữ cảnh thời gian và địa điểm:** Hệ thống đã loại bỏ hoàn toàn các dropdown Market và Month cứng nhắc trên Header UI. AI Agent sẽ tự động trích xuất quốc gia và tháng dựa trên nội dung trò chuyện (sử dụng hệ quy chiếu thời gian hệ thống cố định là **Tháng 6 năm 2026** để xử lý các từ tương đối như *mùa hè, tháng sau, tháng này*). Giao diện frontend sẽ tự động phản hồi và đồng bộ các gợi ý thời tiết/sản phẩm theo ngữ cảnh động này.
+5. **Nearest Alternative Mode (Lựa chọn thay thế gần nhất):**
+   - Nếu không tìm thấy sản phẩm đáp ứng 100% tiêu chí lọc của seller (ví dụ: quá ngân sách hoặc giao hàng lâu hơn yêu cầu), AI Agent sẽ tự động chuyển sang đề xuất các biến thể có thông số gần nhất và đưa ra cảnh báo cụ thể.
+6. **Double Confirmation & PII Protection (Bảo mật & Rào chắn an toàn):**
+   - Yêu cầu xác nhận 2 bước ("xác nhận tạo sandbox order") trước khi gọi API thật để tạo đơn hàng nháp.
+   - Tự động che giấu thông tin nhạy cảm của khách hàng (PII) như Tên, Số điện thoại, Email, Địa chỉ và Mã Zip trước khi hiển thị trên màn hình chat của seller.
 
 ---
 
-## ✨ 2. Các tính năng chính
+## 🛠️ Kiến Trúc Hệ Thống
 
-1. **Stateful Conversation (LangGraph):** Quản lý hội thoại đa lượt cô lập theo `session_id`, lưu trữ vết tìm kiếm (last recommendation) để hỗ trợ các câu hỏi bổ sung ngắn (ví dụ: "ship sang CA thì sao?", "bán giá 25 đô").
-2. **Dynamic Search & Ranking:** Hỗ trợ lọc theo `color`, `size`, `product_type` ở cấp SKU/variant. Nếu không tìm thấy kết quả khớp hoàn hảo, hệ thống tự động đề xuất các phương án thay thế gần nhất (Nearest Alternatives) kèm chỉ số chênh lệch (`filter_excess`).
-3. **Sandbox Order Draft Gating:** Quy trình tạo đơn hàng thử nghiệm qua chat an toàn tuyệt đối. Yêu cầu nhập đầy đủ thông tin giao hàng, hiển thị tóm tắt đơn hàng đã ẩn thông tin cá nhân (PII masking) và chỉ tạo đơn khi nhận được cụm từ xác nhận chính xác.
-4. **Market & Seasonal Suggestion:** Đưa ra các câu hỏi gợi ý và xu hướng sản phẩm (niche/design/events) dựa trên quốc gia và tháng lựa chọn (ví dụ: chuẩn bị cho July 4th tại Mỹ).
-5. **Dual Intent Detection:** Kết hợp giữa bộ phân tích regex nhanh (rule-based parser) và mô hình ngôn ngữ lớn (LLM classifier) để phân loại ý định chính xác khi câu lệnh mơ hồ.
+Dự án được chia làm 2 phần chính:
+- **Backend (FastAPI):**
+  - **SQLModel:** Định nghĩa CSDL và tương tác với DB PostgreSQL (Supabase) hoặc SQLite.
+  - **OpenAI API / Heuristic Parse:** Hỗ trợ NLP để trích xuất ý định (intent) và dữ liệu (slots) từ tin nhắn của người dùng.
+  - **APScheduler:** Thực hiện đồng bộ dữ liệu catalog chạy nền tự động.
+- **Frontend (React + Vite + TypeScript):**
+  - Giao diện chat trực quan tích hợp danh sách sản phẩm gợi ý và form tạo đơn hàng (Draft Order).
 
 ---
 
-## ⚡ 3. Hướng dẫn cài đặt nhanh (Quick Start)
+## 💻 Hướng Dẫn Cài Đặt
 
-### Yêu cầu hệ thống
-- **Python:** 3.11+
-- **Node.js:** 18+ (để chạy frontend)
-- **BurgerPrints API Key** (lấy từ cài đặt cửa hàng fulfillment của bạn)
+### 1. Cấu Hình Biến Môi Trường (.env)
 
-### 3.1. Thiết lập Backend
-1. **Clone repository:**
-   ```bash
-   git clone <repository_url>
-   cd BurgerPrintsAgent
-   ```
-2. **Tạo và kích hoạt môi trường ảo:**
-   ```bash
-   python -m venv venv
-   # Trên Windows (PowerShell):
-   .\venv\Scripts\Activate.ps1
-   # Trên macOS/Linux:
-   source venv/bin/activate
-   ```
-3. **Cài đặt thư viện:**
-   ```bash
-   pip install -r requirements.txt
-   ```
-4. **Cấu hình biến môi trường (`.env`):**
-   Tạo file `.env` ở thư mục gốc (xem mẫu ở `.env.example`):
-   ```env
-   BURGERPRINTS_API_KEY=your_burgerprints_api_key_here
-   BURGERPRINTS_API_BASE_URL=https://api.burgerprints.com/v2
-   BURGERPRINTS_ENABLE_SANDBOX_CREATE_ORDER=false # Đổi thành true để cho phép tạo đơn sandbox thật
-   
-   # Cấu hình LLM (Nếu muốn dùng LLM fallback router)
-   LLM_INTENT_ENABLED=false
-   LLM_API_KEY=your_llm_api_key
-   ```
-5. **Chạy Backend Server:**
-   ```bash
-   python -m uvicorn app:app --reload --host 127.0.0.1 --port 8000
-   ```
-   *Tài liệu Swagger UI sẽ khả dụng tại: `http://localhost:8000/docs`*
+Tạo tệp `.env` trong thư mục `backend/` với các thông số sau:
+```env
+BURGERPRINTS_API_KEY=your_burgerprints_api_key_here
+BURGERPRINTS_API_BASE_URL=https://api.burgerprints.com/v2
+BURGERPRINTS_ENABLE_SANDBOX_CREATE_ORDER=true
+SUPABASE_DB_URL=postgresql://postgres:postgres@localhost:5432/postgres  # Hoặc SQLite: sqlite:///database.db
+OPENAI_API_KEY=mock-key  # Hoặc OpenAI Key thật của bạn
+```
 
-### 3.2. Thiết lập Frontend
-1. **Di chuyển vào thư mục frontend:**
-   ```bash
-   cd frontend
-   ```
-2. **Cài đặt thư viện:**
-   ```bash
-   npm install
-   ```
-3. **Khởi chạy Frontend Dev Server:**
-   ```bash
-   npm run dev
-   ```
-   *Ứng dụng Web Chat UI sẽ hoạt động tại: `http://localhost:5173`*
+### 2. Cài Đặt & Chạy Backend (FastAPI)
 
-### 3.3. Chạy toàn bộ Unit Tests
-Dự án có bộ kiểm thử tự động toàn diện (132 test cases) kiểm tra toàn bộ logic parse, normalize, margin, ranking và graph state.
-Để chạy tests từ thư mục gốc dự án:
+Yêu cầu: **Python 3.10+**
+
+Chạy các lệnh sau tại thư mục `backend/`:
 ```bash
-python -m unittest test_core.py test_agent.py -v
+# Tạo môi trường ảo (khuyến nghị)
+python -m venv venv
+source venv/bin/activate  # Trên Windows dùng: venv\Scripts\activate
+
+# Cài đặt thư viện phụ thuộc
+pip install -r requirements.txt
+
+# Khởi chạy API Server
+uvicorn app.main:app --host 127.0.0.1 --port 8000 --reload
+```
+
+FastAPI Server sẽ chạy tại địa chỉ `http://127.0.0.1:8000`. Bạn có thể truy cập tài liệu API tự động tại `http://127.0.0.1:8000/docs`.
+
+### 3. Cài Đặt & Chạy Frontend (React)
+
+Yêu cầu: **Node.js 18+**
+
+Chạy các lệnh sau tại thư mục `frontend/`:
+```bash
+# Cài đặt dependencies
+npm install
+
+# Khởi chạy chế độ phát triển
+npm run dev
+```
+
+Ứng dụng Frontend sẽ chạy tại `http://127.0.0.1:5173`.
+
+---
+
+## 🧪 Chạy Kiểm Thử (Tests)
+
+Hệ thống được phát triển đi kèm bộ kiểm thử tự động toàn diện cho API, Agent Engine và các logic tính toán.
+
+Để chạy kiểm thử backend, di chuyển vào thư mục `backend/` và thực thi:
+```bash
+PYTHONPATH=. pytest
 ```
 
 ---
 
-## 🏗️ 4. Kiến trúc hệ thống & Luồng xử lý
+## 💬 Hướng Dẫn Sử Dụng Chatbot
 
-Dự án tuân thủ mô hình kiến trúc phân lớp (6 lớp) để dễ bảo trì và mở rộng:
-
-```
-[Lớp API (FastAPI)]  --> Nhận request tại POST /agent/chat
-       ↓
-[Lớp Service (AgentService, AgentGraph)] --> LangGraph quản lý session state qua session_id
-       ↓
-[Lớp Orchestration (OrchestratorAgent, IntentAgent, SemanticRouter)] --> Phân loại & định tuyến luồng đi
-       ↓
-[Lớp Agent (CatalogAgent, OrderAgent, MarketAdviceAgent, AnswerAgent)] --> Thực thi nhiệm vụ chuyên biệt
-       ↓
-[Lớp Tools & Core (BurgerPrintsTools, Engine, TextParser, Normalizer)] --> Xử lý dữ liệu thô, parse tham số
-       ↓
-[Lớp Dịch vụ ngoài (BurgerPrintsClient, CatalogApiClient, Ranking, Margin)] --> Giao tiếp API & tính toán
-```
-
-### Chi tiết phản hồi API (`/agent/chat`)
-Để đảm bảo frontend hoạt động nhất quán, cấu trúc dữ liệu trả về luôn tuân thủ format:
-```json
-{
-  "answer": "Nội dung markdown phản hồi cho seller...",
-  "intent": "search_order_items",
-  "tool_calls": [{"name": "search_catalog_tool", "params": {...}}],
-  "api": {
-    "method": "GET",
-    "path": "/catalogsV2/list",
-    "url": "https://api.burgerprints.com/catalogsV2/list?...",
-    "params": {...}
-  },
-  "params": {
-    "country": "US",
-    "product_type": "T-shirt",
-    "selling_price": 25.0
-  },
-  "data": {
-    "items": [...]
-  },
-  "notes": [],
-  "session_id": "session-uuid-string"
-}
-```
-
----
-
-## 🧪 5. Hướng dẫn chạy thử nghiệm (Smoke Tests)
-
-Bạn có thể kiểm tra nhanh hệ thống bằng cách gửi các câu lệnh sau qua cổng chat:
-
-1. **Kiểm tra thông tin tài khoản:**
-   - Câu lệnh: `xem balance` hoặc `lấy 3 order mới nhất`
-2. **Tìm kiếm sản phẩm & Xếp hạng:**
-   - Câu lệnh: `Tôi muốn bán T-shirt ship US dưới $8`
-   - *Hệ thống sẽ yêu cầu cung cấp giá bán nếu muốn tính Margin. Bạn có thể chat tiếp: `bán giá 25 đô`*
-3. **So sánh xưởng sản xuất:**
-   - Câu lệnh: `so sánh giá Hoodie giữa các xưởng đang có, xưởng nào ship US rẻ nhất?`
-4. **Đề xuất sản phẩm theo mùa:**
-   - Câu lệnh: `Có gợi ý sản phẩm nào cho mùa hè ở Mỹ không?`
-5. **Quy trình tạo đơn thử nghiệm (Sandbox Order Draft):**
-   - Bước 1: Tìm kiếm một SKU trước.
-   - Bước 2: Chat `tạo sandbox order`.
-   - Bước 3: Điền các thông tin theo yêu cầu của bot dưới dạng key-value (ví dụ: `shipping_name: John Doe`, `shipping_address1: 123 Main St`, v.v.).
-   - Bước 4: Thử chat `ok` hoặc `yes`. *Bot sẽ từ chối tạo đơn và yêu cầu xác nhận chính xác.*
-   - Bước 5: Chat `confirm create sandbox order` hoặc `xác nhận tạo sandbox order` để kết thúc quy trình.
-
----
-
-## 🛡️ 6. Quy tắc an toàn & Bảo mật
-
-- **Không gửi PII thô:** Toàn bộ thông tin cá nhân của người mua (họ tên, địa chỉ, số điện thoại) đều được ẩn/mã hóa (`masked`) trước khi lưu vào metadata đơn hàng hoặc hiển thị trên luồng chat.
-- **Bảo vệ tạo đơn thật:** Hành động `POST /v2/order` bị chặn mặc định ở chế độ production để tránh tạo đơn ảo tốn chi phí. Việc tạo đơn chỉ được kích hoạt khi biến môi trường `BURGERPRINTS_ENABLE_SANDBOX_CREATE_ORDER=true` được cấu hình.
-- **Bảo vệ Secret Keys:** Tuyệt đối không commit file `.env` chứa API Key lên các kho lưu trữ công khai.
-
----
-
-## 📁 7. Cấu trúc thư mục dự án
-
-Dưới đây là cấu trúc các tệp nguồn chính được đẩy lên kho lưu trữ Git:
-
-```
-BurgerPrintsAgent/
-├── README.md                 # Tài liệu hướng dẫn sử dụng này
-├── requirements.txt          # Thư viện Python phụ thuộc
-│
-├── src/                      # Mã nguồn Python Backend
-│   ├── main.py               # FastAPI application entrypoint
-│   ├── api/                  # Lớp Routing & API Schemas
-│   ├── core/                 # Bộ máy xử lý trung tâm (Engine, Parser, Normalizer)
-│   ├── services/             # API Clients (BurgerPrints & Catalog) & Logic Rank/Margin
-│   └── agent/                # Cấu trúc Multi-Agent & LangGraph orchestration
-│       ├── agents/           # Định nghĩa các Agent chuyên biệt
-│       └── tools/            # Công cụ đăng ký để Agent gọi
-│
-└── frontend/                 # Mã nguồn Frontend (loại trừ node_modules/ và dist/)
-    ├── src/
-    │   ├── App.tsx           # Thành phần chính chứa Chat UI & Order Draft Panel
-    │   ├── api/agent.ts      # HTTP Client kết nối tới backend
-    │   └── styles/styles.css # Thiết kế giao diện (UI Tokens)
-    ├── vite.config.ts        # Cấu hình Vite
-    └── package.json          # Script chạy & các dependencies frontend
-```
-
----
-
-## 🔨 8. Đóng góp & Phát triển tính năng mới
-
-Khi phát triển tính năng mới, vui lòng tuân thủ quy trình kiểm thử nghiêm ngặt:
-1. Đọc kỹ file `docs/development_plan.md` để nắm rõ ràng các ràng buộc.
-2. Viết unit tests bổ sung vào `test_core.py` hoặc `test_agent.py` trước khi sửa mã nguồn (TDD).
-3. Đảm bảo chạy lệnh kiểm thử thành công:
-   ```bash
-   python -m unittest discover -s . -p "test*.py"
-   ```
-4. Không thay đổi cấu trúc dữ liệu trả về (`response shape`) của API chat để tránh làm hỏng hiển thị của frontend.
-5. Luôn mask PII và kiểm soát gating an toàn đối với các API làm thay đổi trạng thái hệ thống.
+Bạn có thể tương tác với chatbot bằng Tiếng Việt hoặc Tiếng Anh thông qua các câu lệnh tự nhiên:
+* **Tìm kiếm & Gợi ý:** *"Tìm áo thun cotton ở Mỹ dưới $10"*
+* **So sánh xưởng:** *"So sánh phí ship hoodie ở Đức"*
+* **Tính toán Margin:** *"Tính margin cho SKU USG5000-Black-S tại US với giá bán 25 đô"*
+* **Tạo đơn hàng nháp:** *"Tạo đơn cho Nguyễn Văn A, 123 Đường Láng, Hà Nội, 100000, VN"* -> Chatbot sẽ yêu cầu bạn nhập dòng chữ xác nhận: `xác nhận tạo sandbox order` để hoàn tất.

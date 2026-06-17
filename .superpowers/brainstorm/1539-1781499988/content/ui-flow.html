@@ -1,0 +1,123 @@
+<h2>Thiết kế Giao diện UI Chatbot & Order Panel (Next.js)</h2>
+<p class="subtitle">Trải nghiệm người dùng hoàn chỉnh cho sản phẩm (Production UI)</p>
+
+<div class="split">
+  <!-- Màn hình Chatbot và các gợi ý ở tay trái -->
+  <div class="mockup" style="background: var(--bg-card); flex: 1.2; border: 1px solid var(--border-color); border-radius: 8px;">
+    <div class="mockup-header" style="background: #1e293b; color: white; display: flex; justify-content: space-between; align-items: center; padding: 10px;">
+      <span>💬 Trợ lý BurgerPrints AI Agent</span>
+      <span style="background: #059669; font-size: 11px; padding: 2px 6px; border-radius: 4px; color: white;">Online</span>
+    </div>
+    <div class="mockup-body" style="padding: 15px; height: 450px; display: flex; flex-direction: column; justify-content: space-between;">
+      <!-- Khung chat hiển thị hội thoại -->
+      <div style="overflow-y: auto; flex-grow: 1; margin-bottom: 15px; font-size: 13px;">
+        <div style="display: flex; gap: 8px; margin-bottom: 15px;">
+          <div style="background: #3b82f6; color: white; width: 28px; height: 28px; border-radius: 50%; display: flex; justify-content: center; align-items: center; font-weight: bold; flex-shrink: 0;">AI</div>
+          <div style="background: #f1f5f9; padding: 10px; border-radius: 8px; max-width: 80%; color: #1e293b;">
+            Xin chào! Tôi có thể giúp bạn tìm kiếm xưởng sản xuất tốt nhất, tính toán lợi nhuận (margin) và tạo đơn hàng sandbox thử nghiệm trên BurgerPrints.
+          </div>
+        </div>
+
+        <div style="display: flex; gap: 8px; margin-bottom: 15px; justify-content: flex-end;">
+          <div style="background: #3b82f6; color: white; padding: 10px; border-radius: 8px; max-width: 80%;">
+            Tôi muốn bán 2 áo T-shirt cho thị trường Mỹ, giá vốn dưới $8, ship dưới 5 ngày, xưởng nào rẻ nhất?
+          </div>
+        </div>
+
+        <div style="display: flex; gap: 8px; margin-bottom: 15px;">
+          <div style="background: #3b82f6; color: white; width: 28px; height: 28px; border-radius: 50%; display: flex; justify-content: center; align-items: center; font-weight: bold; flex-shrink: 0;">AI</div>
+          <div style="background: #f1f5f9; padding: 10px; border-radius: 8px; max-width: 85%; color: #1e293b;">
+            Tôi đã tìm thấy <strong>2 SKU phù hợp</strong> tại xưởng <strong>BurgerPrints US East</strong>:<br><br>
+            <table style="width: 100%; border-collapse: collapse; margin-top: 5px; font-size: 12px;">
+              <tr style="border-bottom: 1px solid #cbd5e1; font-weight: bold;">
+                <th style="text-align: left; padding: 4px;">SKU</th>
+                <th style="padding: 4px;">Base Cost</th>
+                <th style="padding: 4px;">Ship US</th>
+                <th style="padding: 4px;">SLA</th>
+              </tr>
+              <tr>
+                <td style="padding: 4px; color: #2563eb; font-weight: 500;">G500-Wht-S (White, S)</td>
+                <td style="text-align: center; padding: 4px;">$6.50</td>
+                <td style="text-align: center; padding: 4px;">$4.50</td>
+                <td style="text-align: center; padding: 4px; color: #16a34a;">3-4 ngày</td>
+              </tr>
+            </table>
+            <br>
+            <strong>Tổng chi phí (2 sản phẩm):</strong> $18.50 ($13.00 base + $5.50 shipping).<br>
+            Bạn có muốn tôi giúp tính lợi nhuận gộp (gross margin) khi bán giá $24.99 không? Hoặc có thể tiến hành tạo đơn hàng thử nghiệm.
+          </div>
+        </div>
+      </div>
+
+      <!-- Ô nhập liệu và hành động nhanh -->
+      <div>
+        <div style="display: flex; gap: 5px; margin-bottom: 8px;">
+          <button style="font-size: 11px; padding: 4px 8px; border-radius: 12px; background: #e2e8f0; border: none; cursor: pointer;">Bán giá $24.99</button>
+          <button style="font-size: 11px; padding: 4px 8px; border-radius: 12px; background: #e2e8f0; border: none; cursor: pointer;">Tạo sandbox order</button>
+          <button style="font-size: 11px; padding: 4px 8px; border-radius: 12px; background: #e2e8f0; border: none; cursor: pointer;">So sánh xưởng khác</button>
+        </div>
+        <div style="display: flex; gap: 8px;">
+          <input style="flex-grow: 1; padding: 8px 12px; border-radius: 20px; border: 1px solid var(--border-color); background: var(--bg-card); color: var(--text-color); font-size: 13px;" placeholder="Nhập tin nhắn..." value="Tạo sandbox order">
+          <button style="background: #3b82f6; color: white; padding: 8px 16px; border: none; border-radius: 20px; font-weight: bold; cursor: pointer; font-size: 13px;">Gửi</button>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Bảng Order Draft Panel xuất hiện ở bên tay phải khi nhận diện ý định Tạo đơn -->
+  <div class="mockup" style="background: var(--bg-card); flex: 0.8; border: 1px solid var(--border-color); border-radius: 8px;">
+    <div class="mockup-header" style="background: #0f172a; color: white; padding: 10px; font-weight: bold; font-size: 14px; display: flex; justify-content: space-between;">
+      <span>📦 Order Draft Builder (Sandbox)</span>
+      <span style="color: #fbbf24; font-size: 11px;">Trạng thái: Đang nhập tin</span>
+    </div>
+    <div class="mockup-body" style="padding: 15px; font-size: 12px; line-height: 1.6;">
+      <div style="background: #fef3c7; color: #92400e; padding: 8px; border-radius: 6px; margin-bottom: 12px; border: 1px solid #fde68a;">
+        ⚠️ <strong>Thông tin bảo mật (PII):</strong> Họ tên, địa chỉ sẽ được tự động che giấu (mask) trong nhật ký chat của Agent.
+      </div>
+
+      <div style="background: #f8fafc; border: 1px solid #e2e8f0; border-radius: 6px; padding: 10px; margin-bottom: 12px;">
+        <strong style="color: #475569;">1. Sản phẩm lựa chọn:</strong><br>
+        • SKU: <strong>G500-Wht-S</strong> (T-shirt)<br>
+        • Số lượng: <strong>2</strong><br>
+        • Trạng thái kho: <span style="background: #dcfce7; color: #166534; padding: 1px 6px; border-radius: 4px; font-weight: bold; font-size: 10px;">Còn hàng (Real-time Checked)</span>
+      </div>
+
+      <strong style="color: #475569;">2. Thông tin giao hàng (Shipping Info):</strong>
+      <div style="margin-top: 5px;">
+        <div style="margin-bottom: 6px;">
+          <label style="display:block; font-weight:bold; color:#64748b;">Họ tên người nhận (Tên đầy đủ):</label>
+          <input style="width:100%; padding:5px; border:1px solid #cbd5e1; border-radius:4px; font-size:12px;" value="J*** D***">
+        </div>
+        <div style="margin-bottom: 6px;">
+          <label style="display:block; font-weight:bold; color:#64748b;">Địa chỉ giao hàng:</label>
+          <input style="width:100%; padding:5px; border:1px solid #cbd5e1; border-radius:4px; font-size:12px;" value="123 M*** St">
+        </div>
+        <div style="display: flex; gap: 5px; margin-bottom: 6px;">
+          <div style="flex: 1;">
+            <label style="display:block; font-weight:bold; color:#64748b;">City:</label>
+            <input style="width:100%; padding:5px; border:1px solid #cbd5e1; border-radius:4px; font-size:12px;" value="New York">
+          </div>
+          <div style="flex: 0.5;">
+            <label style="display:block; font-weight:bold; color:#64748b;">State:</label>
+            <input style="width:100%; padding:5px; border:1px solid #cbd5e1; border-radius:4px; font-size:12px;" value="NY">
+          </div>
+          <div style="flex: 0.8;">
+            <label style="display:block; font-weight:bold; color:#64748b;">Zip Code:</label>
+            <input style="width:100%; padding:5px; border:1px solid #cbd5e1; border-radius:4px; font-size:12px;" value="10***">
+          </div>
+        </div>
+      </div>
+
+      <div style="margin-top: 15px; border-top: 1px solid #e2e8f0; padding-top: 10px;">
+        <strong style="color: #475569;">3. Xác nhận tạo đơn hàng:</strong>
+        <p style="color:#64748b; font-size:11px; margin: 4px 0;">Để bảo vệ an toàn hệ thống, vui lòng nhập chính xác cụm từ sau để xác nhận tạo sandbox order:</p>
+        <div style="background:#f1f5f9; padding:6px; border-radius:4px; text-align:center; font-family:monospace; font-weight:bold; margin-bottom: 8px;">
+          confirm create sandbox order
+        </div>
+        <button style="width:100%; background:#94a3b8; color:white; padding:8px; border:none; border-radius:6px; font-weight:bold; cursor:not-allowed;" disabled>
+          Yêu cầu nhập tin nhắn xác nhận
+        </button>
+      </div>
+    </div>
+  </div>
+</div>

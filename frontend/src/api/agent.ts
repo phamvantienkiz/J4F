@@ -1,4 +1,4 @@
-const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || "http://127.0.0.1:8010";
+const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || "http://127.0.0.1:8000";
 
 export type SuggestedQuestions = {
   country: string;
@@ -40,6 +40,7 @@ export type RecommendedItem = {
   image_url?: string;
   profit?: number;
   margin_percent?: number;
+  print_sides?: "front" | "both" | "back";
   filter_excess?: Record<string, unknown>;
 };
 
@@ -84,7 +85,10 @@ export async function getSuggestions(country: string, month: number) {
   return response.json() as Promise<SuggestedQuestions>;
 }
 
-export async function sendChatMessage(input: { sessionId?: string | null; message: string; history?: unknown[] }) {
+export async function sendChatMessage(
+  input: { sessionId?: string | null; message: string; history?: unknown[] },
+  onChunk?: (chunk: any) => void
+): Promise<AgentResponse> {
   const response = await fetch(`${API_BASE_URL}/agent/chat`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
@@ -95,5 +99,48 @@ export async function sendChatMessage(input: { sessionId?: string | null; messag
     }),
   });
   if (!response.ok) throw new Error(await response.text());
-  return response.json() as Promise<AgentResponse>;
+  if (!response.body) throw new Error("Response body is null");
+
+  const reader = response.body.getReader();
+  const decoder = new TextDecoder("utf-8");
+  let buffer = "";
+  let finalPayload: AgentResponse | null = null;
+
+  try {
+    while (true) {
+      const { value, done } = await reader.read();
+      if (done) break;
+
+      buffer += decoder.decode(value, { stream: true });
+      const parts = buffer.split("\n\n");
+      buffer = parts.pop() || "";
+
+      for (const part of parts) {
+        const line = part.trim();
+        if (!line) continue;
+
+        if (line.startsWith("data: ")) {
+          try {
+            const data = JSON.parse(line.slice(6));
+            if (onChunk) {
+              onChunk(data);
+            }
+            if (data && typeof data.session_id === "string") {
+              finalPayload = data as AgentResponse;
+            }
+          } catch (e) {
+            console.error("Error parsing stream chunk:", e);
+          }
+        }
+      }
+    }
+  } finally {
+    reader.releaseLock();
+  }
+
+  if (!finalPayload) {
+    throw new Error("Stream closed without receiving final payload");
+  }
+
+  return finalPayload;
 }

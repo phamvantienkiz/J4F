@@ -1,0 +1,77 @@
+<h2>Lựa chọn Database Free & Cơ chế Sync Dữ liệu</h2>
+<p class="subtitle">Thiết kế hệ thống lưu trữ và đồng bộ hóa tự động dữ liệu BurgerPrints sau mỗi 6-12 tiếng</p>
+
+<div class="section">
+  <h3>1. Lựa chọn Cloud Database PostgreSQL Miễn Phí</h3>
+  <p class="subtitle">Các dịch vụ cung cấp PostgreSQL Managed hoàn toàn miễn phí, phù hợp cho môi trường Production của dự án:</p>
+
+  <div class="options">
+    <div class="option" data-choice="supabase" onclick="toggleSelect(this)">
+      <div class="letter">A</div>
+      <div class="content">
+        <h3>Supabase (Khuyến nghị)</h3>
+        <p><strong>Gói Free:</strong> 500MB bộ nhớ DB, 50,000 MAU Auth miễn phí, không tự động sleep sau vài phút không hoạt động (chỉ tạm dừng nếu không hoạt động trong 1 tuần). Rất ổn định cho chatbot chạy liên tục.</p>
+      </div>
+    </div>
+    <div class="option" data-choice="neon" onclick="toggleSelect(this)">
+      <div class="letter">B</div>
+      <div class="content">
+        <h3>Neon.tech</h3>
+        <p><strong>Gói Free:</strong> 0.5 GiB lưu trữ, kiến trúc Serverless Postgres. Rất dễ sử dụng, tuy nhiên DB sẽ tự động chuyển sang chế độ "sleep" sau 5 phút không có request, request tiếp theo sẽ mất 2-3 giây để khởi động lại DB.</p>
+      </div>
+    </div>
+  </div>
+</div>
+
+<div class="section">
+  <h3>2. Sơ đồ Luồng Đồng bộ (Sync Flow) & Cấu trúc Database</h3>
+  <div class="mockup" style="background: var(--bg-card); padding: 20px; border-radius: 8px; border: 1px solid var(--border-color); font-family: monospace; line-height: 1.5;">
+    <div style="display: flex; justify-content: space-around; align-items: center; margin-bottom: 20px; text-align: center;">
+      <div style="background: #1e293b; color: #f8fafc; padding: 10px; border-radius: 6px; width: 25%; border: 1px solid #475569;">
+        <strong>BurgerPrints API</strong><br>
+        <small>Catalog & Shipping</small>
+      </div>
+      <div style="font-size: 20px; color: #64748b;">→ (Gọi định kỳ)</div>
+      <div style="background: #059669; color: white; padding: 10px; border-radius: 6px; width: 35%;">
+        <strong>FastAPI Backend</strong><br>
+        <small>Sync Service & Scheduler</small>
+      </div>
+      <div style="font-size: 20px; color: #64748b;">→ (Lưu trữ/Cập nhật)</div>
+      <div style="background: #7c3aed; color: white; padding: 10px; border-radius: 6px; width: 25%;">
+        <strong>PostgreSQL</strong><br>
+        <small>Supabase / Neon</small>
+      </div>
+    </div>
+
+    <strong>Các bảng dữ liệu (Tables) dự kiến:</strong>
+    <ul style="margin-top: 10px; padding-left: 20px; font-size: 13px;">
+      <li><strong>Catalog:</strong> Lưu danh sách sản phẩm base (shortCode, name, displayName, category...).</li>
+      <li><strong>Variant/SKU:</strong> Lưu các biến thể (size, color, baseCost, secondSidePrice, location/supplier...).</li>
+      <li><strong>Location/Workshop:</strong> Lưu thông tin xưởng sản xuất (locationId, locationName, processingTime, SLA...).</li>
+      <li><strong>ShippingRate:</strong> Lưu phí ship chi tiết theo từng quốc gia (countryCode, firstItemPrice, additionalItemPrice, SLA...).</li>
+      <li><strong>ChatSession / ChatHistory:</strong> Lưu lịch sử chat của người dùng phục vụ hội thoại nhiều lượt.</li>
+    </ul>
+  </div>
+</div>
+
+<div class="section">
+  <h3>3. Phương án Kích hoạt Sync (Triggering Cron Job)</h3>
+  <p class="subtitle">Làm sao để hệ thống tự động chạy đồng bộ sau mỗi 6 tiếng hoặc 12 tiếng?</p>
+
+  <div class="options">
+    <div class="option" data-choice="apscheduler" onclick="toggleSelect(this)">
+      <div class="letter">A</div>
+      <div class="content">
+        <h3>APScheduler chạy nền trong FastAPI</h3>
+        <p>Sử dụng thư viện <code style="background: rgba(0,0,0,0.1); padding: 2px 4px; border-radius: 3px;">APScheduler</code> trực tiếp trong ứng dụng FastAPI. Khi server khởi động, nó tự chạy background thread để đồng bộ. Đơn giản, không phụ thuộc dịch vụ ngoài, nhưng đòi hỏi server FastAPI phải chạy liên tục (không deploy lên serverless ngủ đông).</p>
+      </div>
+    </div>
+    <div class="option" data-choice="external-cron" onclick="toggleSelect(this)">
+      <div class="letter">B</div>
+      <div class="content">
+        <h3>GitHub Actions / External Cron service (Ví dụ: cron-job.org)</h3>
+        <p>Viết một endpoint bảo mật <code style="background: rgba(0,0,0,0.1); padding: 2px 4px; border-radius: 3px;">POST /api/v1/sync</code> trên FastAPI (yêu cầu API Secret Key). Sử dụng một dịch vụ cron bên ngoài hoặc GitHub Actions định kỳ gọi tới endpoint này. Thích hợp cho cả môi trường serverless (như Render, Vercel, Fly.io) giúp tiết kiệm tài nguyên.</p>
+      </div>
+    </div>
+  </div>
+</div>

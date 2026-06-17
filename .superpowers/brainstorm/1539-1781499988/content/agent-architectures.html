@@ -1,0 +1,83 @@
+<h2>So sánh Kiến trúc AI Agent cho Backend (FastAPI)</h2>
+<p class="subtitle">Tìm kiếm giải pháp tối ưu nhất về Tốc độ (Speed) và Độ chính xác (Accuracy) cho Product</p>
+
+<div class="section">
+  <h3>So sánh 3 Hướng tiếp cận cho Agent Backend</h3>
+  <div class="options" data-multiselect>
+
+    <!-- Option A -->
+    <div class="option" data-choice="semantic-router" onclick="toggleSelect(this)">
+      <div class="letter">A</div>
+      <div class="content">
+        <h3>Semantic Router + Rule-based Engine (Nhanh & Chính xác nhất)</h3>
+        <p><strong>Cách hoạt động:</strong>
+          1. Dùng 1 LLM Call duy nhất (hoặc regex/semantic search) để phân loại Ý định (Intent) và trích xuất thực thể (Color, Size, Price, Country) thành JSON dạng Pydantic.<br>
+          2. Sử dụng <strong>mã Python thuần (deterministic code)</strong> để truy vấn Supabase, tính toán Margin/Ship và xếp hạng. Không cho LLM tự quyết định gọi công cụ.<br>
+          3. Dùng 1 LLM Call cuối cùng để chuyển dữ liệu thô thành câu trả lời Tiếng Việt trôi chảy.
+        </p>
+        <span style="color:#059669; font-weight:bold; font-size:11px;">🚀 Latency: &lt; 1.5s | 🎯 Độ chính xác: ~99% (Math/Logic tuyệt đối)</span>
+      </div>
+    </div>
+
+    <!-- Option B -->
+    <div class="option" data-choice="deterministic-langgraph" onclick="toggleSelect(this)">
+      <div class="letter">B</div>
+      <div class="content">
+        <h3>LangGraph dạng State Machine / DAG (Hybrid)</h3>
+        <p><strong>Cách hoạt động:</strong> Vẫn dùng LangGraph để quản lý trạng thái hội thoại đa lượt, nhưng các bước chuyển đổi giữa các Node (Node transitions) là cố định và lập trình sẵn bằng code Python (Deterministic DAG). LLM chỉ được dùng ở các Node cụ thể để phân tích câu hỏi hoặc viết câu trả lời, không dùng LLM để tự chọn công cụ chạy.</p>
+        <span style="color:#d97706; font-weight:bold; font-size:11px;">🚀 Latency: 2s - 3s | 🎯 Độ chính xác: ~95% (Dễ kiểm soát luồng)</span>
+      </div>
+    </div>
+
+    <!-- Option C -->
+    <div class="option" data-choice="fully-autonomous-agent" onclick="toggleSelect(this)">
+      <div class="letter">C</div>
+      <div class="content">
+        <h3>Autonomous ReAct Agent (Kiểu cũ - Không khuyến nghị cho Product)</h3>
+        <p><strong>Cách hoạt động:</strong> LLM chạy vòng lặp suy nghĩ (Reasoning-Acting Loop). LLM tự quyết định khi nào gọi Tools (ví dụ: `search_catalog_tool`, `get_sla_tool`), tự đọc kết quả và lặp lại cho đến khi tự thấy đủ thông tin.</p>
+        <span style="color:#dc2626; font-weight:bold; font-size:11px;">⚠️ Latency: 5s - 10s (Chạy nhiều vòng lặp) | 🎯 Độ chính xác: ~75% (Dễ sai lệch logic toán học)</span>
+      </div>
+    </div>
+
+  </div>
+</div>
+
+<div class="section">
+  <h3>So sánh Chi tiết tiêu chí</h3>
+  <table style="width: 100%; border-collapse: collapse; font-size: 13px; text-align: left; background: var(--bg-card); border: 1px solid var(--border-color);">
+    <thead>
+      <tr style="background: rgba(0,0,0,0.05); border-bottom: 2px solid var(--border-color);">
+        <th style="padding: 10px;">Tiêu chí</th>
+        <th style="padding: 10px; color:#059669;">A. Semantic Router + Python Engine</th>
+        <th style="padding: 10px; color:#d97706;">B. Deterministic LangGraph</th>
+        <th style="padding: 10px; color:#dc2626;">C. Autonomous ReAct Agent</th>
+      </tr>
+    </thead>
+    <tbody>
+      <tr style="border-bottom: 1px solid var(--border-color);">
+        <td style="padding: 10px; font-weight:bold;">Độ trễ (Latency)</td>
+        <td style="padding: 10px; color:#059669; font-weight:bold;">Cực thấp (1 LLM Call chính)</td>
+        <td style="padding: 10px;">Trung bình (1-2 LLM Calls)</td>
+        <td style="padding: 10px; color:#dc2626;">Rất cao (Vòng lặp >= 3 LLM Calls)</td>
+      </tr>
+      <tr style="border-bottom: 1px solid var(--border-color);">
+        <td style="padding: 10px; font-weight:bold;">Khả năng tính toán toán học</td>
+        <td style="padding: 10px; color:#059669; font-weight:bold;">Chính xác 100% (Tính bằng code Python)</td>
+        <td style="padding: 10px;">Chính xác 100% (Tính bằng code Python)</td>
+        <td style="padding: 10px; color:#dc2626;">Dễ sai sót (LLM tự tính hoặc tự truyền tham số)</td>
+      </tr>
+      <tr style="border-bottom: 1px solid var(--border-color);">
+        <td style="padding: 10px; font-weight:bold;">Độ ổn định luồng (Stability)</td>
+        <td style="padding: 10px; color:#059669; font-weight:bold;">Tuyệt đối (Luồng đi cố định)</td>
+        <td style="padding: 10px; color:#059669; font-weight:bold;">Rất cao (Luồng qua State Machine)</td>
+        <td style="padding: 10px; color:#dc2626;">Kém (LLM có thể bị lặp vô hạn hoặc gọi sai tool)</td>
+      </tr>
+      <tr>
+        <td style="padding: 10px; font-weight:bold;">Khả năng xử lý hội thoại tự do</td>
+        <td style="padding: 10px;">Đủ dùng (Dựa trên context truyền vào)</td>
+        <td style="padding: 10px; color:#059669; font-weight:bold;">Rất tốt (LangGraph quản lý session state)</td>
+        <td style="padding: 10px; color:#059669; font-weight:bold;">Tự do nhất (Nhưng rủi ro cao)</td>
+      </tr>
+    </tbody>
+  </table>
+</div>

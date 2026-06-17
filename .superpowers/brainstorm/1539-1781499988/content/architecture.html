@@ -1,0 +1,88 @@
+<h2>Sơ đồ Kiến trúc Hệ thống (Production Architecture)</h2>
+<p class="subtitle">Next.js (FE) kết nối trực tiếp với FastAPI (BE + DB + AI Agent) không qua NestJS</p>
+
+<div class="section">
+  <h3>1. Sơ đồ Luồng dữ liệu (Data Flow Diagram)</h3>
+  <div class="mockup" style="background: var(--bg-card); padding: 20px; border-radius: 8px; border: 1px solid var(--border-color); font-family: monospace;">
+    <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 20px;">
+      <div style="background: #2563eb; color: white; padding: 15px; border-radius: 6px; width: 25%; text-align: center;">
+        <strong>Next.js (Frontend)</strong><br>
+        <small>App Router, Tailwind CSS, TypeScript</small><br>
+        <span style="font-size: 11px; color: #bfdbfe;">UI Chatbot & Order Panel</span>
+      </div>
+      <div style="font-size: 20px; color: #94a3b8;">⇆</div>
+      <div style="background: #059669; color: white; padding: 15px; border-radius: 6px; width: 40%; text-align: center;">
+        <strong>FastAPI Backend (Python)</strong><br>
+        <small>Uvicorn, Python 3.11+</small><br>
+        <span style="font-size: 11px; color: #a7f3d0;">APIs & LangGraph Multi-Agent</span>
+      </div>
+      <div style="font-size: 20px; color: #94a3b8;">⇆</div>
+      <div style="background: #7c3aed; color: white; padding: 15px; border-radius: 6px; width: 25%; text-align: center;">
+        <strong>PostgreSQL Database</strong><br>
+        <small>Prisma ORM (FE) / SQLAlchemy (BE)</small><br>
+        <span style="font-size: 11px; color: #ddd6fe;">Sessions & Products Cache</span>
+      </div>
+    </div>
+
+    <div style="border-top: 1px solid var(--border-color); padding-top: 15px;">
+      <strong>Chi tiết luồng hoạt động:</strong>
+      <ol style="margin-left: 20px; padding-left: 0; line-height: 1.6; font-size: 13px;">
+        <li>User nhập câu hỏi trên Giao diện Next.js (Ví dụ: "Tìm T-shirt dưới $8 ship US").</li>
+        <li>Next.js thực hiện gọi API <code style="background: rgba(0,0,0,0.1); padding: 2px 4px; border-radius: 3px;">POST /agent/chat</code> trực tiếp sang FastAPI Backend.</li>
+        <li>FastAPI nhận yêu cầu, tải Context hội thoại từ PostgreSQL (nếu có session trước) và chạy LangGraph Agent:
+          <ul>
+            <li><strong>Intent Agent:</strong> Xác định ý định là tìm kiếm sản phẩm.</li>
+            <li><strong>Catalog Agent:</strong> Gọi Public Catalog API v1 để lấy thông tin sản phẩm và phí ship.</li>
+            <li><strong>Engine/Ranking:</strong> Lọc theo điều kiện (giá &lt; $8, ship US), tính toán margin/SLA và xếp hạng.</li>
+          </ul>
+        </li>
+        <li>FastAPI trả về JSON có cấu trúc chuẩn (gồm nội dung chat dạng markdown, danh sách sản phẩm khớp, dữ liệu trung gian).</li>
+        <li>Next.js render khung hội thoại và tự động mở bảng <strong>Order Draft Panel</strong> bên tay phải nếu phát hiện ý định tạo đơn hàng (đã che giấu dữ liệu nhạy cảm PII).</li>
+      </ol>
+    </div>
+  </div>
+</div>
+
+<div class="section">
+  <h3>2. Lựa chọn Hướng phát triển CSDL & Đồng bộ hóa</h3>
+  <p class="subtitle">Vì chúng ta chuyển sang mô hình Next.js gọi trực tiếp FastAPI, cơ sở dữ liệu PostgreSQL cần được chia sẻ hoặc quản lý đồng bộ:</p>
+
+  <div class="options">
+    <div class="option" data-choice="db-shared" onclick="toggleSelect(this)">
+      <div class="letter">A</div>
+      <div class="content">
+        <h3>Một DB PostgreSQL duy nhất (Khuyến nghị)</h3>
+        <p>Cả Next.js (nếu cần xử lý DB nội bộ bằng Prisma) và FastAPI (sử dụng SQLAlchemy/SQLModel) đều kết nối trực tiếp vào một DB PostgreSQL. Đồng bộ schema bằng Prisma migrations.</p>
+      </div>
+    </div>
+
+    <div class="option" data-choice="db-fastapi" onclick="toggleSelect(this)">
+      <div class="letter">B</div>
+      <div class="content">
+        <h3>FastAPI độc quyền quản lý Database</h3>
+        <p>Database chỉ kết nối với FastAPI. Next.js hoàn toàn không có Database riêng, mọi thao tác lưu trữ (session, người dùng, tracking) đều đi qua API của FastAPI. Đơn giản hóa kiến trúc.</p>
+      </div>
+    </div>
+  </div>
+</div>
+
+<div class="section">
+  <h3>3. So sánh cấu trúc dự án mới</h3>
+  <div class="pros-cons">
+    <div class="pros">
+      <h4>Ưu điểm Next.js + FastAPI</h4>
+      <ul>
+        <li><strong>Đơn giản & Hiệu năng cao:</strong> Bỏ đi NestJS giúp giảm bớt một lớp proxy trung gian, giảm latency mạng.</li>
+        <li><strong>Tập trung hóa AI:</strong> Toàn bộ logic RAG, Agent, Tools đều nằm ở FastAPI, tận dụng tối đa hệ sinh thái Python (LangGraph, Pandas).</li>
+        <li><strong>Next.js mạnh mẽ:</strong> Sử dụng App Router và Server Actions để xử lý API Keys, Gateway bảo mật nếu cần.</li>
+      </ul>
+    </div>
+    <div class="cons">
+      <h4>Thách thức & Điểm lưu ý</h4>
+      <ul>
+        <li><strong>Chia sẻ mô hình dữ liệu:</strong> Cần định nghĩa rõ schema chung giữa Prisma (TypeScript) và SQLModel (Python) để tránh lệch pha dữ liệu.</li>
+        <li><strong>Quản lý Auth:</strong> Next.js sẽ phải đảm nhận việc quản lý User Session (ví dụ: dùng NextAuth) và ký JWT truyền sang FastAPI để xác thực.</li>
+      </ul>
+    </div>
+  </div>
+</div>

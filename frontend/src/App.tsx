@@ -1,4 +1,4 @@
-import { FormEvent, useEffect, useState } from "react";
+import { FormEvent, useEffect, useRef, useState } from "react";
 import { AgentResponse, RecommendedItem, SuggestedQuestions, checkHealth, checkReady, getSuggestions, sendChatMessage } from "./api/agent";
 
 type ChatMessage = {
@@ -6,6 +6,8 @@ type ChatMessage = {
   role: "user" | "assistant";
   text: string;
   response?: AgentResponse;
+  steps?: Array<{ step: string; message: string }>;
+  isStreaming?: boolean;
 };
 
 type ChatSession = {
@@ -25,6 +27,7 @@ type OrderForm = {
   shipping_country: string;
   reference_order_id: string;
   design_url_front: string;
+  print_sides: "front" | "both";
 };
 
 type Language = "vi" | "en";
@@ -94,11 +97,19 @@ const copy = {
     skuOption: "Chọn SKU / màu / xưởng",
     color: "Màu",
     size: "Size",
-    base: "Base",
-    printCost: "Print Cost",
+    base: "Base Cost",
+    printCost: "In mặt thứ hai",
     ship: "Ship",
     grossMargin: "Biên lợi nhuận gộp",
     marginMissing: "Cần giá bán",
+    missingInfoTitle: "Bổ sung thông tin còn thiếu",
+    missingInfoDesc: "Thêm các trường này để agent tính/so sánh chính xác hơn.",
+    pricePrompt: "Thêm giá bán để tính margin",
+    pricePromptExample: "giá bán là 15 đô",
+    marketPrompt: "Thêm market ship",
+    marketPromptExample: "ship US",
+    productPrompt: "Thêm loại sản phẩm",
+    productPromptExample: "tìm T-shirt ship US",
     deliveryMissing: "Cần market ship — ví dụ: giao hàng ở US",
     bestPick: "Lựa chọn tốt nhất",
     catalogRecommendation: "Gợi ý từ Catalog",
@@ -174,6 +185,14 @@ const copy = {
     ship: "Ship",
     grossMargin: "Gross Profit Margin",
     marginMissing: "Need selling price",
+    missingInfoTitle: "Add missing info",
+    missingInfoDesc: "Add these fields so the agent can calculate and compare more accurately.",
+    pricePrompt: "Add selling price to calculate margin",
+    pricePromptExample: "selling price is 15 dollars",
+    marketPrompt: "Add ship market",
+    marketPromptExample: "ship US",
+    productPrompt: "Add product type",
+    productPromptExample: "find T-shirt ship US",
     deliveryMissing: "Need ship market — e.g. ship to US",
     bestPick: "Best pick",
     catalogRecommendation: "Catalog recommendation",
@@ -209,6 +228,7 @@ const emptyOrderForm: OrderForm = {
   shipping_country: "US",
   reference_order_id: "",
   design_url_front: "",
+  print_sides: "front",
 };
 
 function detectLanguage(text: string): Language {
@@ -231,6 +251,56 @@ function englishSuggestions(data: SuggestedQuestions | null) {
   ];
 }
 
+function getDynamicSuggestions(
+  latestResponse: AgentResponse | undefined,
+  language: Language,
+  defaultSuggestions: string[],
+  orderStatus: string,
+  selectedItem: RecommendedItem | null
+): string[] {
+  const isVi = language === "vi";
+
+  // 1. Nếu Agent đang yêu cầu làm rõ trường thông tin cụ thể (clarification_required)
+  if (latestResponse?.data?.clarification_required) {
+    const missingField = latestResponse.data.missing_field;
+    if (missingField === "product_type") {
+      return isVi
+        ? ["Tôi muốn tìm T-Shirt", "Tôi muốn tìm Hoodie", "Tôi muốn tìm Ceramic Mug", "Tôi muốn tìm Sweatshirt"]
+        : ["I want to find T-Shirt", "I want to find Hoodie", "I want to find Ceramic Mug", "I want to find Sweatshirt"];
+    }
+    if (missingField === "country") {
+      return isVi
+        ? ["Giao hàng tại thị trường US", "Giao hàng tại thị trường VN", "Giao hàng tại thị trường DE", "Giao hàng tại thị trường UK"]
+        : ["Ship to United States (US)", "Ship to Vietnam (VN)", "Ship to Germany (DE)", "Ship to United Kingdom (GB)"];
+    }
+  }
+
+  // 2. Nếu thiếu giá bán để tính Margin
+  const bestItem = latestResponse?.data?.items?.[0] || selectedItem;
+  if (bestItem && typeof bestItem.selling_price !== "number") {
+    return isVi
+      ? ["Đặt giá bán lẻ là $15", "Đặt giá bán lẻ là $20", "Đặt giá bán lẻ là $25", "Tính margin với giá bán lẻ $30"]
+      : ["Set selling price to $15", "Set selling price to $20", "Set selling price to $25", "Calculate margin with selling price $30"];
+  }
+
+  // 3. Nếu đang đặt đơn nhưng thiếu thông tin địa chỉ
+  if (orderStatus === "collecting" || latestResponse?.intent === "create_order") {
+    return isVi
+      ? ["Tên người nhận: Nguyễn Văn A", "Địa chỉ: 123 Main St, New York", "Thành phố: New York, Zip: 10001", "Xác nhận tạo đơn hàng"]
+      : ["Name: John Doe", "Address: 123 Main St, New York", "City: New York, Zip: 10001", "Confirm creating order"];
+  }
+
+  // 4. Nếu vừa tạo order thành công, gợi ý các câu tiếp theo
+  if (latestResponse?.data?.status === "created") {
+    return isVi
+      ? ["Kiểm tra số dư tài khoản", "Tìm sản phẩm bán chạy tiếp theo", "So sánh giá ship sản phẩm khác"]
+      : ["Check my account balance", "Find next best seller product", "Compare shipping fees for other products"];
+  }
+
+  // 5. Mặc định trả về gợi ý theo mùa
+  return defaultSuggestions;
+}
+
 function formatMoney(value?: number) {
   return typeof value === "number" ? `$${value.toFixed(2)}` : "N/A";
 }
@@ -251,20 +321,36 @@ function printCostValue(item: RecommendedItem) {
   return typeof item.second_item_price === "number" ? item.second_item_price : item.clone_price;
 }
 
-function formatPrintCost(item: RecommendedItem) {
-  return formatMoney(printCostValue(item));
+function formatPrintCost(item: RecommendedItem, printSides?: "front" | "both") {
+  const sides = printSides || item.print_sides;
+  return formatMoney(sides === "both" ? (printCostValue(item) || 0) : 0);
 }
 
 function formatLandedCost(item: RecommendedItem) {
   return formatMoney(typeof item.landed_cost === "number" ? item.landed_cost : item.total_cost);
 }
 
-function fullOrderTotalValue(item: RecommendedItem) {
-  return (item.base_cost || 0) + (printCostValue(item) || 0) + (item.shipping_fee || 0);
+function fullOrderTotalValue(item: RecommendedItem, printSides?: "front" | "both") {
+  const printCost = printSides === "both" ? (printCostValue(item) || 0) : 0;
+  return (item.base_cost || 0) + printCost + (item.shipping_fee || 0);
 }
 
-function formatFullOrderTotal(item: RecommendedItem) {
-  return formatMoney(fullOrderTotalValue(item));
+function formatFullOrderTotal(item: RecommendedItem, printSides?: "front" | "both") {
+  return formatMoney(fullOrderTotalValue(item, printSides));
+}
+
+function missingRecommendationPrompts(item: RecommendedItem, labels: CopyText) {
+  const prompts: Array<{ label: string; message: string }> = [];
+  if (typeof item.selling_price !== "number") {
+    prompts.push({ label: String(labels.pricePrompt), message: String(labels.pricePromptExample) });
+  }
+  if (formatDelivery(item.delivery_time, labels) === labels.deliveryMissing) {
+    prompts.push({ label: String(labels.marketPrompt), message: String(labels.marketPromptExample) });
+  }
+  if (!item.product_name && !item.display_name) {
+    prompts.push({ label: String(labels.productPrompt), message: String(labels.productPromptExample) });
+  }
+  return prompts;
 }
 
 function formatCarrier(value?: string[] | string) {
@@ -313,11 +399,20 @@ const colorHexByName: Record<string, string> = {
   violet: "#7f8edd",
   white: "#ffffff",
   yellow: "#f5df9b",
+  daisy: "#ffdf00",
 };
 
 function colorHex(color?: string) {
   const key = (color || "").toLowerCase().replace(/[-_]/g, " ").trim();
-  return colorHexByName[key] || "#e2e8f0";
+  if (colorHexByName[key]) return colorHexByName[key];
+
+  // Fallback tìm kiếm tương đối (substring matching)
+  for (const name in colorHexByName) {
+    if (key.includes(name) || name.includes(key)) {
+      return colorHexByName[name];
+    }
+  }
+  return "#e2e8f0";
 }
 
 function productName(item: RecommendedItem) {
@@ -325,7 +420,22 @@ function productName(item: RecommendedItem) {
 }
 
 function imageUrl(item: RecommendedItem | null) {
-  return item?.mockup_url || item?.image_url || "";
+  if (!item) return "";
+  const url = item.mockup_url || item.image_url || "";
+  if (!url || url.includes("api.burgerprints.com")) {
+    const name = (item.product_name || item.display_name || "").toLowerCase();
+    if (name.includes("hoodie")) {
+      return "https://d1ud88wu9m1k4s.cloudfront.net/assets/base-mockups/burgerprints/062025/USG18500.png";
+    }
+    if (name.includes("sweatshirt") || name.includes("sweater")) {
+      return "https://d1ud88wu9m1k4s.cloudfront.net/assets/base-mockups/burgerprints/062025/USG18000.png";
+    }
+    if (name.includes("mug") || name.includes("ceramic")) {
+      return "https://d1ud88wu9m1k4s.cloudfront.net/assets/base-mockups/burgerprints/062025/US11OZ.png";
+    }
+    return "https://d1ud88wu9m1k4s.cloudfront.net/assets/base-mockups/burgerprints/062025/USG5000.png";
+  }
+  return url;
 }
 
 function hasTypedOrderFields(form: OrderForm) {
@@ -348,18 +458,180 @@ function isSandboxOrderCreated(response: AgentResponse) {
 }
 
 function displayMessageText(message: ChatMessage) {
-  const items = message.response?.data?.items || [];
-  if (!items.length || message.role !== "assistant") return message.text;
+  return message.text;
+}
 
-  const best = items[0];
-  return [
-    `Tìm được ${items.length} lựa chọn phù hợp từ BurgerPrints Catalog API.`,
-    `Khuyến nghị: ${productName(best)}`,
-    `SKU: ${best.sku || "N/A"}`,
-    `Supplier: ${best.partner_name || best.location_name || "N/A"}`,
-    `Landed Cost: ${formatLandedCost(best)} · Delivery: ${best.delivery_time || "N/A"}`,
-    "Xem card sản phẩm bên dưới để so sánh nhanh và bấm Đặt đơn khi muốn tạo sandbox draft.",
-  ].join("\n");
+function renderMarkdown(text: string) {
+  if (!text) return "";
+
+  // 1. Escape HTML for security (XSS prevention)
+  let escaped = text
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;")
+    .replace(/'/g, "&#039;");
+
+  // 2. Parse inline styling (bold, italic, inline code)
+  escaped = escaped.replace(/\*\*(.*?)\*\*/g, "<strong>$1</strong>");
+  escaped = escaped.replace(/\*(.*?)\*/g, "<em>$1</em>");
+  escaped = escaped.replace(/`(.*?)`/g, "<code>$1</code>");
+
+  // 3. Split into lines to process block elements
+  const lines = escaped.split("\n");
+  let html = "";
+  let inList = false;
+  let inBlockquote = false;
+  let blockquoteContent: string[] = [];
+
+  const closeList = () => {
+    if (inList) {
+      html += "</ul>";
+      inList = false;
+    }
+  };
+
+  const closeBlockquote = () => {
+    if (inBlockquote) {
+      html += `<blockquote>${blockquoteContent.join("<br />")}</blockquote>`;
+      blockquoteContent = [];
+      inBlockquote = false;
+    }
+  };
+
+  for (let i = 0; i < lines.length; i++) {
+    const line = lines[i];
+    const trimmed = line.trim();
+
+    // Check for Horizontal Rule
+    if (trimmed === "---") {
+      closeList();
+      closeBlockquote();
+      html += "<hr />";
+      continue;
+    }
+
+    // Check for Blockquote
+    // Note: '>' is escaped to '&gt;'
+    if (trimmed.startsWith("&gt;")) {
+      closeList();
+      if (!inBlockquote) {
+        inBlockquote = true;
+      }
+      let content = trimmed.slice(4);
+      if (content.startsWith(" ")) {
+        content = content.slice(1);
+      }
+      blockquoteContent.push(content);
+      continue;
+    }
+
+    // Check for Bullet List Item
+    if (trimmed.startsWith("- ")) {
+      closeBlockquote();
+      if (!inList) {
+        html += '<ul style="margin: 0 0 12px 0; padding-left: 20px;">';
+        inList = true;
+      }
+      html += `<li>${trimmed.slice(2)}</li>`;
+      continue;
+    }
+
+    // Empty line separates paragraphs / blocks
+    if (trimmed === "") {
+      closeList();
+      closeBlockquote();
+      continue;
+    }
+
+    // Regular text line
+    closeList();
+    closeBlockquote();
+
+    // Group consecutive regular text lines into one paragraph separated by <br />
+    let paragraphLines = [trimmed];
+    while (i + 1 < lines.length) {
+      const nextTrimmed = lines[i + 1].trim();
+      if (nextTrimmed === "" || nextTrimmed === "---" || nextTrimmed.startsWith("&gt;") || nextTrimmed.startsWith("- ")) {
+        break;
+      }
+      paragraphLines.push(nextTrimmed);
+      i++;
+    }
+    html += `<p style="margin: 0 0 12px 0;">${paragraphLines.join("<br />")}</p>`;
+  }
+
+  closeList();
+  closeBlockquote();
+
+  return html;
+}
+
+function ThoughtProcessContainer({
+  steps,
+  isStreaming,
+  hasMessageText,
+}: {
+  steps: Array<{ step: string; message: string }>;
+  isStreaming?: boolean;
+  hasMessageText?: boolean;
+}) {
+  const [shouldRender, setShouldRender] = useState(isStreaming === true);
+  const [isFadingOut, setIsFadingOut] = useState(false);
+
+  useEffect(() => {
+    if (isStreaming) {
+      setShouldRender(true);
+      setIsFadingOut(false);
+    } else if (shouldRender) {
+      setIsFadingOut(true);
+      const timer = setTimeout(() => {
+        setShouldRender(false);
+        setIsFadingOut(false);
+      }, 300); // Đợi hiệu ứng fade-out 300ms hoàn tất trước khi unmount
+      return () => clearTimeout(timer);
+    }
+  }, [isStreaming, shouldRender]);
+
+  useEffect(() => {
+    if (hasMessageText && shouldRender) {
+      setIsFadingOut(true);
+      const timer = setTimeout(() => {
+        setShouldRender(false);
+        setIsFadingOut(false);
+      }, 300);
+      return () => clearTimeout(timer);
+    }
+  }, [hasMessageText, shouldRender]);
+
+  if (!shouldRender || !steps || steps.length === 0) return null;
+
+  const allStepsFired = steps.length >= 3;
+  const showWaiting = isStreaming && !hasMessageText && allStepsFired;
+
+  if (showWaiting) {
+    return (
+      <div className={`thought-process-block ${isFadingOut ? "fade-out" : ""}`}>
+        <span className="thought-step-dot" />
+        <span className="text-waiting-shimmer">Trợ lý đang xử lý câu trả lời</span>
+        <span className="loading-dot">.</span>
+        <span className="loading-dot">.</span>
+        <span className="loading-dot">.</span>
+      </div>
+    );
+  }
+
+  const activeStep = steps[steps.length - 1];
+  if (!activeStep) return null;
+
+  return (
+    <div className={`thought-process-block ${isFadingOut ? "fade-out" : ""}`}>
+      <span className="thought-step-dot" />
+      <span key={activeStep.message} className="step-text-animate">
+        {activeStep.message}
+      </span>
+    </div>
+  );
 }
 
 export default function App() {
@@ -386,13 +658,20 @@ export default function App() {
   const [createdOrderTotal, setCreatedOrderTotal] = useState("");
   const [orderStatus, setOrderStatus] = useState<"empty" | "selected" | "collecting" | "confirming" | "disabled" | "created">("empty");
   const [orderPanelTab, setOrderPanelTab] = useState<"checkout" | "orders">("checkout");
+  const [pendingSuggestion, setPendingSuggestion] = useState<string | null>(null);
+  const chatStreamRef = useRef<HTMLDivElement | null>(null);
+  const suggestionTimerRef = useRef<number | null>(null);
 
   const t = copy[language];
-  const displayedSuggestions = language === "en" ? englishSuggestions(suggestions) : suggestions?.suggestions || [];
+  const latestResponse = [...messages].reverse().find((message) => message.response)?.response;
+  const defaultSuggestions = language === "en" ? englishSuggestions(suggestions) : suggestions?.suggestions || [];
+  const displayedSuggestions = getDynamicSuggestions(latestResponse, language, defaultSuggestions, orderStatus, selectedItem);
   const orderDirty = orderStatus !== "selected" && (Boolean(selectedItem) || hasTypedOrderFields(orderForm));
   const orderReadyToConfirm = orderStatus === "confirming" || isOrderConfirmationPrompt(orderNotice);
-  const latestResponse = [...messages].reverse().find((message) => message.response)?.response;
   const needsCountry = latestResponse?.data?.clarification_required && latestResponse.data.missing_field === "country";
+  const showTopSuggestions = displayedSuggestions.length > 0 && !showOrderSuccessCenter && messages.length === 0;
+  const showBottomSuggestions = displayedSuggestions.length > 0 && messages.length > 0;
+  const isStreamingActive = messages.length > 0 && messages[messages.length - 1].role === "assistant" && messages[messages.length - 1].isStreaming === true;
 
   useEffect(() => {
     let cancelled = false;
@@ -423,10 +702,30 @@ export default function App() {
   }, []);
 
   useEffect(() => {
+    if (apiOnline && orderStatus === "disabled" && orderNotice === t.apiError) {
+      setOrderStatus(selectedItem ? "selected" : "empty");
+      setOrderNotice("");
+    }
+  }, [apiOnline, orderNotice, orderStatus, selectedItem, t.apiError]);
+
+  useEffect(() => {
     getSuggestions(market, month)
       .then(setSuggestions)
       .catch(() => setSuggestions(null));
   }, [market, month]);
+
+  useEffect(() => () => {
+    if (suggestionTimerRef.current) window.clearTimeout(suggestionTimerRef.current);
+  }, []);
+
+  useEffect(() => {
+    const stream = chatStreamRef.current;
+    if (!stream) return;
+    const frame = window.requestAnimationFrame(() => {
+      stream.scrollTo({ top: stream.scrollHeight, behavior: "smooth" });
+    });
+    return () => window.cancelAnimationFrame(frame);
+  }, [messages.length, loading]);
 
   function persistChatSession(nextMessages: ChatMessage[], nextSessionId: string | null, nextLanguage: Language) {
     const firstUserMessage = nextMessages.find((message) => message.role === "user");
@@ -479,23 +778,79 @@ export default function App() {
 
   function applyAgentResponse(response: AgentResponse) {
     setSessionId(response.session_id);
+
+    // Đồng bộ các trường thông tin từ Backend slots (response.params)
+    if (response.params) {
+      if (response.params.country) {
+        setMarket(String(response.params.country));
+      } else if (response.params.target_market) {
+        setMarket(String(response.params.target_market));
+      }
+      if (typeof response.params.month === "number") {
+        setMonth(response.params.month);
+      } else if (typeof response.params.month === "string") {
+        const mVal = parseInt(response.params.month, 10);
+        if (!isNaN(mVal)) setMonth(mVal);
+      }
+
+      setOrderForm((current) => {
+        const next = { ...current };
+        if (response.params?.country) {
+          next.shipping_country = String(response.params.country);
+        }
+        if (response.params?.print_sides) {
+          next.print_sides = response.params.print_sides as "front" | "both";
+        }
+
+        const addr = response.params?.shipping_address as Record<string, string> | undefined;
+        if (addr) {
+          if (addr.full_name) next.shipping_name = addr.full_name;
+          if (addr.address1) next.shipping_address1 = addr.address1;
+          if (addr.city) next.shipping_city = addr.city;
+          if (addr.zip_code) next.shipping_zip = addr.zip_code;
+          if (addr.country) next.shipping_country = addr.country;
+        }
+        return next;
+      });
+
+      // Đồng bộ trạng thái quy trình đặt đơn
+      if (response.intent === "create_order") {
+        setOrderPanelTab("checkout");
+        if (response.confirmation_required) {
+          setOrderStatus("confirming");
+        } else if (response.data?.status === "created") {
+          setOrderStatus("created");
+        } else {
+          setOrderStatus("collecting");
+        }
+      }
+    }
+
     const items = response.data?.items || [];
     if (items.length) {
       setShowOrderSuccessCenter(false);
       setRecommendedItems(items);
-      setSelectedItem(items[0]);
-      setOrderForm((current) => ({ ...current, shipping_country: String(response.params?.country || market) }));
-      setOrderStatus("selected");
-      setOrderPanelTab("checkout");
+
+      // Chọn item khớp với SKU từ slot backend nếu có
+      const slotSku = response.params?.sku;
+      const matchedItem = slotSku ? items.find((item) => item.sku === slotSku) : null;
+      setSelectedItem(matchedItem || items[0]);
+
+      // Chỉ đặt status là selected nếu không phải đang trong flow tạo đơn
+      if (response.intent !== "create_order") {
+        setOrderStatus("selected");
+        setOrderPanelTab("checkout");
+      }
     }
+
     if (response.confirmation_required) setOrderStatus("confirming");
     if (response.data?.status === "disabled") setOrderStatus("disabled");
+
     if (isSandboxOrderCreated(response)) {
-      setCreatedOrderTotal(selectedItem ? formatFullOrderTotal(selectedItem) : "");
+      setCreatedOrderTotal(selectedItem ? formatFullOrderTotal(selectedItem, orderForm.print_sides) : "");
       if (frontDesignPreviewUrl) URL.revokeObjectURL(frontDesignPreviewUrl);
       setOrderStatus("created");
       setShowOrderSuccessCenter(true);
-      setMessages([]);
       setRecommendedItems([]);
       setSelectedItem(null);
       setOrderForm({ ...emptyOrderForm, shipping_country: market });
@@ -509,7 +864,14 @@ export default function App() {
 
     setLoading(true);
     try {
-      const response = await sendChatMessage({ sessionId, message: trimmed, history: [] });
+      const response = await sendChatMessage(
+        { sessionId, message: trimmed, history: [] },
+        (chunk) => {
+          if (chunk.step && chunk.message) {
+            setOrderNotice(`*${chunk.message}*`);
+          }
+        }
+      );
       applyAgentResponse(response);
       if (isOrderConfirmationPrompt(response.answer)) setOrderStatus("confirming");
       setOrderNotice(response.answer || "");
@@ -528,35 +890,115 @@ export default function App() {
     if (!trimmed || loading) return;
 
     const nextLanguage = language;
+    setShowOrderSuccessCenter(false);
     const userMessage: ChatMessage = { id: crypto.randomUUID(), role: "user", text: trimmed };
-    const nextMessages = [...messages, userMessage];
+    const assistantMessageId = crypto.randomUUID();
+    const initialAssistantMessage: ChatMessage = {
+      id: assistantMessageId,
+      role: "assistant",
+      text: "",
+      steps: [],
+      isStreaming: true,
+    };
+
+    const nextMessages = [...messages, userMessage, initialAssistantMessage];
     setMessages(nextMessages);
     persistChatSession(nextMessages, sessionId, nextLanguage);
     setInput("");
     setLoading(true);
 
+    let currentAssistantText = "";
+    let currentAssistantSteps: Array<{ step: string; message: string }> = [];
+    let startedStreamingTokens = false;
+
+    const onChunk = (chunk: any) => {
+      if (chunk.step && chunk.message) {
+        const exists = currentAssistantSteps.some((s) => s.step === chunk.step);
+        if (!exists) {
+          currentAssistantSteps = [...currentAssistantSteps, { step: chunk.step, message: chunk.message }];
+          setMessages((prev) =>
+            prev.map((msg) =>
+              msg.id === assistantMessageId
+                ? { ...msg, steps: currentAssistantSteps }
+                : msg
+            )
+          );
+        }
+      } else if (chunk.token) {
+        if (!startedStreamingTokens) {
+          startedStreamingTokens = true;
+        }
+        currentAssistantText += chunk.token;
+        setMessages((prev) =>
+          prev.map((msg) =>
+            msg.id === assistantMessageId
+              ? { ...msg, text: currentAssistantText }
+              : msg
+          )
+        );
+      } else if (chunk.session_id && chunk.answer) {
+        currentAssistantText = chunk.answer;
+        setMessages((prev) =>
+          prev.map((msg) =>
+            msg.id === assistantMessageId
+              ? {
+                  ...msg,
+                  text: currentAssistantText,
+                  response: chunk,
+                  isStreaming: false,
+                }
+              : msg
+          )
+        );
+        applyAgentResponse(chunk);
+      }
+    };
+
     try {
-      const response = await sendChatMessage({ sessionId, message: trimmed, history: [] });
-      applyAgentResponse(response);
-      const finalMessages = [
-        ...nextMessages,
-        { id: crypto.randomUUID(), role: "assistant" as const, text: response.answer, response },
-      ];
-      setMessages(finalMessages);
-      persistChatSession(finalMessages, response.session_id, nextLanguage);
+      const response = await sendChatMessage(
+        { sessionId, message: trimmed, history: [] },
+        onChunk
+      );
+      setMessages((finalPrev) => {
+        persistChatSession(finalPrev, response.session_id, nextLanguage);
+        return finalPrev;
+      });
     } catch {
-      const finalMessages = [
-        ...nextMessages,
-        { id: crypto.randomUUID(), role: "assistant" as const, text: String(copy[nextLanguage].apiError) },
-      ];
-      setMessages(finalMessages);
-      persistChatSession(finalMessages, sessionId, nextLanguage);
+      const errorText = String(copy[nextLanguage].apiError);
+      setMessages((prev) =>
+        prev.map((msg) =>
+          msg.id === assistantMessageId
+            ? { ...msg, text: errorText, isStreaming: false }
+            : msg
+        )
+      );
+      setMessages((finalPrev) => {
+        persistChatSession(finalPrev, sessionId, nextLanguage);
+        return finalPrev;
+      });
     } finally {
       setLoading(false);
     }
   }
 
+  function submitSuggestedMessage(suggestion: string) {
+    if (loading) return;
+    if (suggestionTimerRef.current) window.clearTimeout(suggestionTimerRef.current);
+    setPendingSuggestion(suggestion);
+    setInput(suggestion);
+    suggestionTimerRef.current = window.setTimeout(() => {
+      setPendingSuggestion(null);
+      suggestionTimerRef.current = null;
+      submitMessage(suggestion);
+    }, 360);
+  }
+
   function sendCurrentInput() {
+    if (suggestionTimerRef.current) {
+      window.clearTimeout(suggestionTimerRef.current);
+      suggestionTimerRef.current = null;
+    }
+    setPendingSuggestion(null);
     submitMessage(input);
   }
 
@@ -691,30 +1133,19 @@ export default function App() {
   return (
     <main className="app-shell">
       <header className="topbar">
-        <div className="brand-lockup" aria-label="BURGERAgent">
-          <span className="brand-blue">BURGER</span><span className="brand-bolt">Agent</span>
+        <div className="brand-lockup" aria-label="BURGER Agent">
+          <img className="brand-mark" src="/img/logo (1).svg" alt="" aria-hidden="true" />
+          <img className="brand-wordmark" src="/img/logoChu.svg" alt="BURGER Agent" />
         </div>
         <nav className="topnav" aria-label="Primary">
           {(t.nav as string[]).map((item) => <a key={item}>{item}</a>)}
         </nav>
         <div className="header-controls">
-          <label>
-            {t.language}
+          <label className="control-pill">
+            <span>{t.language}</span>
             <select value={language} onChange={(event) => setLanguage(event.target.value as Language)}>
               <option value="vi">Tiếng Việt</option>
               <option value="en">English</option>
-            </select>
-          </label>
-          <label>
-            {t.market}
-            <select value={market} onChange={(event) => requestMarketChange(event.target.value)}>
-              {markets.map((value) => <option key={value} value={value}>{value}</option>)}
-            </select>
-          </label>
-          <label>
-            {t.month}
-            <select value={month} onChange={(event) => setMonth(Number(event.target.value))}>
-              {months.map((label, index) => <option key={label} value={index + 1}>{label}</option>)}
             </select>
           </label>
           <span className={apiOnline ? "status-pill live" : "status-pill offline"}>{apiOnline ? t.apiLive : apiWarming ? t.apiWarming : t.apiOffline}</span>
@@ -759,51 +1190,87 @@ export default function App() {
         </aside>
 
         <section className="chat-panel" aria-label="Chat workspace">
-          <div className="suggestion-card">
-            <div>
-              <span className="eyebrow">{t.suggestedQuestions} · {market} · {months[month - 1]}</span>
-              <h2>{t.assistantTitle}</h2>
-              <p>{t.assistantDesc}</p>
-            </div>
-            <div className="chips">
-              {displayedSuggestions.map((suggestion) => (
-                <button key={suggestion} type="button" onClick={() => submitMessage(suggestion)}>{suggestion}</button>
-              ))}
-            </div>
-          </div>
-
-          <div className="chat-stream">
-            {showOrderSuccessCenter ? (
-              <div className="order-created-center">
-                <strong>{t.createdTitle}</strong>
-                <p>{t.createdDesc}</p>
-                <span>{t.orderTotal}: {createdOrderTotal || "N/A"}</span>
+          <div className="chat-stream" ref={chatStreamRef}>
+            {showTopSuggestions && (
+              <div className="suggestion-bar suggestion-bar-top" aria-label={t.suggestedQuestions}>
+                <span>{t.suggestedQuestions}</span>
+                <div className="chips">
+                  {displayedSuggestions.map((suggestion) => (
+                    <button key={suggestion} type="button" className={pendingSuggestion === suggestion ? "preparing" : ""} onClick={() => submitSuggestedMessage(suggestion)} disabled={loading || Boolean(pendingSuggestion)}>{suggestion}</button>
+                  ))}
+                </div>
               </div>
-            ) : messages.length === 0 && (
+            )}
+            {messages.length === 0 && !showOrderSuccessCenter && (
               <div className="empty-chat">
                 <h3>{t.emptyTitle}</h3>
                 <p>{t.emptyDesc}</p>
               </div>
             )}
-            {!showOrderSuccessCenter && messages.map((message) => (
-              <article key={message.id} className={`message ${message.role}`}>
-                <div className="message-bubble">
-                  {message.response?.data?.items?.length && message.role === "assistant" ? (
-                    <RecommendationAnswerBox items={message.response.data.items} labels={t} onOrder={startOrder} />
+            {messages.map((message) => {
+              const hasContent = displayMessageText(message) || message.response?.data?.items?.length || message.response?.data?.clarification_required;
+              return (
+                <article key={message.id} className={`message ${message.role}`}>
+                  {message.role === "assistant" ? (
+                    <>
+                      {message.steps && (
+                        <ThoughtProcessContainer
+                          steps={message.steps}
+                          isStreaming={message.isStreaming}
+                          hasMessageText={Boolean(displayMessageText(message))}
+                        />
+                      )}
+                      {hasContent && (
+                        <div className="message-bubble">
+                          {displayMessageText(message) && (
+                            <div
+                              className="assistant-prose"
+                              dangerouslySetInnerHTML={{
+                                __html: renderMarkdown(displayMessageText(message)),
+                              }}
+                            />
+                          )}
+                          {message.response?.data?.items?.length ? (
+                            <RecommendationAnswerBox items={message.response.data.items} labels={t} onOrder={startOrder} onAskPrice={submitSuggestedMessage} />
+                          ) : null}
+                          {message.response?.data?.clarification_required && (
+                            <div className="country-chips">
+                              {markets.slice(0, 5).map((value) => <button key={value} type="button" onClick={() => submitMessage(value)}>{value}</button>)}
+                            </div>
+                          )}
+                        </div>
+                      )}
+                    </>
                   ) : (
-                    <pre>{displayMessageText(message)}</pre>
-                  )}
-                  {message.response?.data?.clarification_required && (
-                    <div className="country-chips">
-                      {markets.slice(0, 5).map((value) => <button key={value} type="button" onClick={() => submitMessage(value)}>{value}</button>)}
+                    <div className="message-bubble">
+                      <div style={{ whiteSpace: "pre-wrap", fontFamily: "inherit", fontSize: "14px", lineHeight: "1.6" }}>
+                        {displayMessageText(message)}
+                      </div>
                     </div>
                   )}
-                </div>
-              </article>
-            ))}
-            {loading && <RecommendationSkeleton />}
+                </article>
+              );
+            })}
+            {showOrderSuccessCenter && (
+              <div className="order-created-center">
+                <strong>{t.createdTitle}</strong>
+                <p>{t.createdDesc}</p>
+                <span>{t.orderTotal}: {createdOrderTotal || "N/A"}</span>
+              </div>
+            )}
+            {loading && !isStreamingActive && <RecommendationSkeleton />}
           </div>
 
+          {showBottomSuggestions && (
+            <div className="suggestion-bar suggestion-bar-bottom" aria-label={t.suggestedQuestions}>
+              <span>{t.suggestedQuestions}</span>
+              <div className="chips">
+                {displayedSuggestions.map((suggestion) => (
+                  <button key={suggestion} type="button" className={pendingSuggestion === suggestion ? "preparing" : ""} onClick={() => submitSuggestedMessage(suggestion)} disabled={loading || Boolean(pendingSuggestion)}>{suggestion}</button>
+                ))}
+              </div>
+            </div>
+          )}
 
           <form className="chat-input" onSubmit={onSubmit}>
             <textarea
@@ -817,7 +1284,10 @@ export default function App() {
               }}
               placeholder={t.placeholder}
             />
-            <button type="submit" disabled={loading || !apiOnline}>{loading ? t.sending : t.send}</button>
+            <button type="submit" className="send-icon-button" disabled={loading || !apiOnline} aria-label={String(loading ? t.sending : t.send)} title={String(loading ? t.sending : t.send)}>
+              <img src="/img/PaperPlaneTilt.svg" alt="" aria-hidden="true" />
+              <span className="sr-only">{loading ? t.sending : t.send}</span>
+            </button>
           </form>
         </section>
 
@@ -873,25 +1343,30 @@ export default function App() {
                     </div>
                   </div>
                 </div>
-                {recommendedItems.length > 1 && (
-                  <div className="sku-option-select">
-                    <span>{t.skuOption}</span>
-                    <div className="sku-option-list">
-                      {recommendedItems.slice(0, 6).map((item) => (
-                        <button
-                          key={item.sku}
-                          type="button"
-                          className={selectedItem.sku === item.sku ? "sku-option active" : "sku-option"}
-                          onClick={() => selectProductBySku(item.sku || "")}
-                        >
-                          <ColorChip color={item.color} />
-                          <small>{item.size || "N/A"}</small>
-                          <strong>{formatLandedCost(item)}</strong>
-                        </button>
-                      ))}
+                {(() => {
+                  const partnerOptions = recommendedItems.filter(
+                    (item) => (item.partner_name || "BurgerPrints") === (selectedItem?.partner_name || "BurgerPrints")
+                  );
+                  return partnerOptions.length > 1 && (
+                    <div className="sku-option-select">
+                      <span>{t.skuOption}</span>
+                      <div className="sku-option-list">
+                        {partnerOptions.map((item) => (
+                          <button
+                            key={item.sku}
+                            type="button"
+                            className={selectedItem?.sku === item.sku ? "sku-option active" : "sku-option"}
+                            onClick={() => selectProductBySku(item.sku || "")}
+                          >
+                            <ColorChip color={item.color} />
+                            <small>{item.size || "N/A"} - {item.partner_name || "N/A"}</small>
+                            <strong>{formatLandedCost(item)}</strong>
+                          </button>
+                        ))}
+                      </div>
                     </div>
-                  </div>
-                )}
+                  );
+                })()}
               </section>
 
               <form className="checkout-form" onSubmit={submitOrderFields}>
@@ -930,6 +1405,34 @@ export default function App() {
                   <p className="design-url-hint">{frontDesignPreviewUrl ? t.localImagePreview : t.designUrlHint}</p>
                 </section>
 
+                <section className="checkout-section print-options-section">
+                  <div className="checkout-section-title">
+                    <span>{language === "vi" ? "Tùy chọn in ấn" : "Print Options"}</span>
+                  </div>
+                  <div className="print-sides-options" style={{ display: "flex", gap: "16px", marginTop: "4px" }}>
+                    <label style={{ display: "flex", alignItems: "center", gap: "6px", cursor: "pointer", fontWeight: "bold" }}>
+                      <input
+                        type="radio"
+                        name="print_sides"
+                        value="front"
+                        checked={orderForm.print_sides === "front"}
+                        onChange={() => setOrderForm({ ...orderForm, print_sides: "front" })}
+                      />
+                      <span>{language === "vi" ? "In 1 mặt (Front only)" : "Front side only"}</span>
+                    </label>
+                    <label style={{ display: "flex", alignItems: "center", gap: "6px", cursor: "pointer", fontWeight: "bold" }}>
+                      <input
+                        type="radio"
+                        name="print_sides"
+                        value="both"
+                        checked={orderForm.print_sides === "both"}
+                        onChange={() => setOrderForm({ ...orderForm, print_sides: "both" })}
+                      />
+                      <span>{language === "vi" ? "In 2 mặt (Front & Back)" : "Both sides (Front & Back)"}</span>
+                    </label>
+                  </div>
+                </section>
+
                 {orderNotice && (
                   <section className="checkout-section order-notice">
                     <strong>{t.orderPanelNotice}</strong>
@@ -940,13 +1443,13 @@ export default function App() {
                 <section className="checkout-section billing-summary">
                   <div className="checkout-section-title">
                     <span>{t.billingSummary}</span>
-                    <small>{t.orderTotal}: {formatFullOrderTotal(selectedItem)}</small>
+                    <small>{t.orderTotal}: {formatFullOrderTotal(selectedItem, orderForm.print_sides)}</small>
                   </div>
                   <dl>
                     <div><dt>{t.base}</dt><dd>{formatMoney(selectedItem.base_cost)}</dd></div>
-                    <div><dt>{t.printCost}</dt><dd>{formatPrintCost(selectedItem)}</dd></div>
+                    <div><dt>{t.printCost}</dt><dd>{formatPrintCost(selectedItem, orderForm.print_sides)}</dd></div>
                     <div><dt>{t.ship}</dt><dd>{formatMoney(selectedItem.shipping_fee)}</dd></div>
-                    <div><dt>{t.orderTotal}</dt><dd>{formatFullOrderTotal(selectedItem)}</dd></div>
+                    <div><dt>{t.orderTotal}</dt><dd>{formatFullOrderTotal(selectedItem, orderForm.print_sides)}</dd></div>
                     <div><dt>{t.grossMargin}</dt><dd>{formatPercent(selectedItem.margin_percent, t.marginMissing)}</dd></div>
                     <div><dt>{t.delivery}</dt><dd title={formatDelivery(selectedItem.delivery_time, t)}>{formatDelivery(selectedItem.delivery_time, t)}</dd></div>
                   </dl>
@@ -955,7 +1458,7 @@ export default function App() {
                 <div className="checkout-actions">
                   <div className="order-total-bar">
                     <span>{t.orderTotal}</span>
-                    <strong>{formatFullOrderTotal(selectedItem)}</strong>
+                    <strong>{formatFullOrderTotal(selectedItem, orderForm.print_sides)}</strong>
                   </div>
                   {orderStatus === "selected" && <button type="button" className="confirm-order-btn" onClick={() => startOrder(selectedItem)} disabled={loading}>{t.order}</button>}
                   {orderStatus !== "selected" && !orderReadyToConfirm && <button type="submit" className="confirm-order-btn" disabled={loading}>{t.createDraft}</button>}
@@ -993,9 +1496,10 @@ function ColorChip({ color }: { color?: string }) {
   );
 }
 
-function RecommendationAnswerBox({ items, labels, onOrder }: { items: RecommendedItem[]; labels: CopyText; onOrder: (item: RecommendedItem) => void }) {
+function RecommendationAnswerBox({ items, labels, onOrder, onAskPrice }: { items: RecommendedItem[]; labels: CopyText; onOrder: (item: RecommendedItem) => void; onAskPrice: (message: string) => void }) {
   const best = items[0];
-  const topItems = items.slice(0, 3);
+  const topItems = items;
+  const missingPrompts = missingRecommendationPrompts(best, labels);
 
   return (
     <div className="result-box">
@@ -1029,6 +1533,19 @@ function RecommendationAnswerBox({ items, labels, onOrder }: { items: Recommende
           </div>
         </div>
       </div>
+      {missingPrompts.length > 0 && (
+        <div className="missing-info-callout">
+          <div>
+            <strong>{labels.missingInfoTitle}</strong>
+            <span>{labels.missingInfoDesc}</span>
+          </div>
+          <div className="missing-info-actions">
+            {missingPrompts.map((prompt) => (
+              <button key={prompt.message} type="button" onClick={() => onAskPrice(prompt.message)}>{prompt.label}</button>
+            ))}
+          </div>
+        </div>
+      )}
       <div className="mini-comparison" role="table" aria-label="Top recommended SKUs">
         <div className="mini-row mini-row-header" role="row">
           <span>{labels.color}</span>
@@ -1049,7 +1566,7 @@ function RecommendationAnswerBox({ items, labels, onOrder }: { items: Recommende
             <span>{item.size || "N/A"}</span>
             <span>{item.partner_name || item.location_name || "N/A"}</span>
             <span>{formatMoney(item.base_cost)}</span>
-            <span>{formatPrintCost(item)}</span>
+            <span>{formatMoney(printCostValue(item))}</span>
             <span>{formatMoney(item.shipping_fee)}</span>
             <span>{formatSellingPrice(item, labels)}</span>
             <span>{formatLandedCost(item)}</span>
