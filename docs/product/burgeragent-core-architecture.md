@@ -140,7 +140,7 @@ classDiagram
 Hệ thống áp dụng cơ chế cơ sở dữ liệu lai (**Hybrid SQL/NoSQL Database**) trên SQLite để tối ưu hóa hiệu năng, giảm số lần gọi API bên ngoài và thích ứng linh hoạt trước sự thay đổi của API đối tác.
 
 ```mermaid
-erJiagram
+erDiagram
     USERS {
         int id PK
         string email UK
