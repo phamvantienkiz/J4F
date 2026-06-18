@@ -8,15 +8,11 @@
 
 <!-- CUSTOMIZE THIS SECTION FOR YOUR PROJECT -->
 
-- **Project Name**: J4F - BurgerPrintsAgent (POD Catalog Assistant)
-- **Stack**: FastAPI, TypeScript, NextJS, PostgreSQL, ...
-- **Current Goal**: Nghiên cứu, lên giải pháp tối ưu thiết và phát triển MVP cho Hackathon.
+- **Project Name**: BurgerAgent
+- **Stack**: FastAPI, NextJS, LangChain, SQLite,...
+- **Goal**: Phát triển hệ thống hoàn thiện giải quyết bài toán cốt lõi của BurgerPrints, phát triển thêm các tính năng mới tiến đến startup
 - **Active Branch**: feat/...
-- **Key Docs**: [e.g., /docs/architecture.md, /docs/api-spec.md]
-- **Execution Commands**:
-  - Run: `npm run dev`
-  - Test: `npm run test`
-  - Build: `npm run build`
+- **Key Docs**: `@docs/product/`
 - **Infrastructure Context**: Local MCP servers available via `.agents/mcp_config.json`.
 
 ---
