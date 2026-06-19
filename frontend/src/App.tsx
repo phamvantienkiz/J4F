@@ -100,6 +100,12 @@ const copy = {
     base: "Base Cost",
     printCost: "In mặt thứ hai",
     ship: "Ship",
+    tax: "Thuế",
+    taxType: "Loại thuế",
+    taxSource: "Nguồn thuế",
+    buyerTax: "Thuế buyer trả thêm",
+    sellerTax: "Thuế nhúng trong giá",
+    netRevenue: "Doanh thu sau thuế",
     grossMargin: "Biên lợi nhuận gộp",
     marginMissing: "Cần giá bán",
     missingInfoTitle: "Bổ sung thông tin còn thiếu",
@@ -183,6 +189,12 @@ const copy = {
     base: "Base",
     printCost: "Print Cost",
     ship: "Ship",
+    tax: "Tax",
+    taxType: "Tax type",
+    taxSource: "Tax source",
+    buyerTax: "Buyer-paid tax",
+    sellerTax: "Embedded tax",
+    netRevenue: "Net revenue",
     grossMargin: "Gross Profit Margin",
     marginMissing: "Need selling price",
     missingInfoTitle: "Add missing info",
@@ -337,6 +349,41 @@ function fullOrderTotalValue(item: RecommendedItem, printSides?: "front" | "both
 
 function formatFullOrderTotal(item: RecommendedItem, printSides?: "front" | "both") {
   return formatMoney(fullOrderTotalValue(item, printSides));
+}
+
+function hasTaxData(item: RecommendedItem) {
+  return Boolean(item.tax_type || typeof item.tax_amount === "number" || typeof item.net_revenue === "number");
+}
+
+function formatTaxType(item: RecommendedItem) {
+  if (!item.tax_type) return "N/A";
+  return [item.tax_type, item.tax_rate_pct].filter(Boolean).join(" ");
+}
+
+function formatTaxAmount(item: RecommendedItem) {
+  if (typeof item.tax_amount === "number") return formatMoney(item.tax_amount);
+  if (typeof item.tax_fee === "number") return formatMoney(item.tax_fee);
+  return "N/A";
+}
+
+function formatTaxSource(item: RecommendedItem) {
+  if (!item.tax_data_source) return "N/A";
+  return `${item.tax_data_source}${item.tax_is_estimated ? " · estimated" : ""}`;
+}
+
+function formatTaxSummary(item: RecommendedItem) {
+  if (!hasTaxData(item)) return "N/A";
+  return `${formatTaxAmount(item)} · ${formatTaxType(item)}`;
+}
+
+function formatTaxImpact(item: RecommendedItem, labels: CopyText) {
+  if (typeof item.buyer_tax === "number" && item.buyer_tax > 0) {
+    return `${labels.buyerTax}: ${formatMoney(item.buyer_tax)}`;
+  }
+  if (typeof item.seller_tax === "number" && item.seller_tax > 0) {
+    return `${labels.sellerTax}: ${formatMoney(item.seller_tax)}`;
+  }
+  return formatTaxSource(item);
 }
 
 function missingRecommendationPrompts(item: RecommendedItem, labels: CopyText) {
@@ -1450,6 +1497,11 @@ export default function App() {
                     <div><dt>{t.printCost}</dt><dd>{formatPrintCost(selectedItem, orderForm.print_sides)}</dd></div>
                     <div><dt>{t.ship}</dt><dd>{formatMoney(selectedItem.shipping_fee)}</dd></div>
                     <div><dt>{t.orderTotal}</dt><dd>{formatFullOrderTotal(selectedItem, orderForm.print_sides)}</dd></div>
+                    {hasTaxData(selectedItem) && <div><dt>{t.tax}</dt><dd>{formatTaxAmount(selectedItem)} · {formatTaxType(selectedItem)}</dd></div>}
+                    {hasTaxData(selectedItem) && <div><dt>{t.netRevenue}</dt><dd>{formatMoney(selectedItem.net_revenue)}</dd></div>}
+                    {typeof selectedItem.buyer_tax === "number" && selectedItem.buyer_tax > 0 && <div><dt>{t.buyerTax}</dt><dd>{formatMoney(selectedItem.buyer_tax)}</dd></div>}
+                    {typeof selectedItem.seller_tax === "number" && selectedItem.seller_tax > 0 && <div><dt>{t.sellerTax}</dt><dd>{formatMoney(selectedItem.seller_tax)}</dd></div>}
+                    {hasTaxData(selectedItem) && <div><dt>{t.taxSource}</dt><dd>{formatTaxSource(selectedItem)}</dd></div>}
                     <div><dt>{t.grossMargin}</dt><dd>{formatPercent(selectedItem.margin_percent, t.marginMissing)}</dd></div>
                     <div><dt>{t.delivery}</dt><dd title={formatDelivery(selectedItem.delivery_time, t)}>{formatDelivery(selectedItem.delivery_time, t)}</dd></div>
                   </dl>
@@ -1500,6 +1552,7 @@ function RecommendationAnswerBox({ items, labels, onOrder, onAskPrice }: { items
   const best = items[0];
   const topItems = items;
   const missingPrompts = missingRecommendationPrompts(best, labels);
+  const showTaxColumns = topItems.some(hasTaxData);
 
   return (
     <div className="result-box">
@@ -1511,6 +1564,7 @@ function RecommendationAnswerBox({ items, labels, onOrder, onAskPrice }: { items
         <div className="result-box-metrics">
           <strong>{formatLandedCost(best)}</strong>
           <span>{labels.grossMargin}: {formatPercent(best.margin_percent, labels.marginMissing)}</span>
+          {hasTaxData(best) && <span>{labels.tax}: {formatTaxSummary(best)}</span>}
         </div>
       </div>
       <div className="best-pick-card">
@@ -1526,6 +1580,9 @@ function RecommendationAnswerBox({ items, labels, onOrder, onAskPrice }: { items
             <div className="meta-field"><b>{labels.printCost}</b><span>{formatPrintCost(best)}</span></div>
             <div className="meta-field"><b>{labels.ship}</b><span>{formatMoney(best.shipping_fee)}</span></div>
             <div className="meta-field"><b>{labels.sellPrice}</b><span>{formatSellingPrice(best, labels)}</span></div>
+            {hasTaxData(best) && <div className="meta-field"><b>{labels.tax}</b><span title={formatTaxSource(best)}>{formatTaxSummary(best)}</span></div>}
+            {hasTaxData(best) && <div className="meta-field"><b>{labels.netRevenue}</b><span>{formatMoney(best.net_revenue)}</span></div>}
+            {hasTaxData(best) && <div className="meta-field"><b>{typeof best.buyer_tax === "number" && best.buyer_tax > 0 ? labels.buyerTax : labels.sellerTax}</b><span>{formatTaxImpact(best, labels).split(": ").pop()}</span></div>}
           </div>
           <div className="best-pick-actions">
             <strong>{labels.grossMargin}: {formatPercent(best.margin_percent, labels.marginMissing)}</strong>
@@ -1547,7 +1604,7 @@ function RecommendationAnswerBox({ items, labels, onOrder, onAskPrice }: { items
         </div>
       )}
       <div className="mini-comparison" role="table" aria-label="Top recommended SKUs">
-        <div className="mini-row mini-row-header" role="row">
+        <div className={`mini-row mini-row-header${showTaxColumns ? " with-tax" : ""}`} role="row">
           <span>{labels.color}</span>
           <span>{labels.size}</span>
           <span>{labels.supplier}</span>
@@ -1555,13 +1612,15 @@ function RecommendationAnswerBox({ items, labels, onOrder, onAskPrice }: { items
           <span>{labels.printCost}</span>
           <span>{labels.ship}</span>
           <span>{labels.sellPrice}</span>
+          {showTaxColumns && <span>{labels.tax}</span>}
+          {showTaxColumns && <span>{labels.netRevenue}</span>}
           <span>{labels.total}</span>
           <span>{labels.grossMargin}</span>
           <span>{labels.delivery}</span>
           <span>{labels.order}</span>
         </div>
         {topItems.map((item) => (
-          <div key={item.sku} className="mini-row" role="row">
+          <div key={item.sku} className={`mini-row${showTaxColumns ? " with-tax" : ""}`} role="row">
             <ColorChip color={item.color} />
             <span>{item.size || "N/A"}</span>
             <span>{item.partner_name || item.location_name || "N/A"}</span>
@@ -1569,6 +1628,8 @@ function RecommendationAnswerBox({ items, labels, onOrder, onAskPrice }: { items
             <span>{formatMoney(printCostValue(item))}</span>
             <span>{formatMoney(item.shipping_fee)}</span>
             <span>{formatSellingPrice(item, labels)}</span>
+            {showTaxColumns && <span title={formatTaxImpact(item, labels)}>{hasTaxData(item) ? formatTaxSummary(item) : "N/A"}</span>}
+            {showTaxColumns && <span>{hasTaxData(item) ? formatMoney(item.net_revenue) : "N/A"}</span>}
             <span>{formatLandedCost(item)}</span>
             <span>{formatPercent(item.margin_percent, labels.marginMissing)}</span>
             <span title={formatDelivery(item.delivery_time, labels)}>{formatDelivery(item.delivery_time, labels)}</span>
@@ -1613,12 +1674,15 @@ function ProductCard({
           <div><small>{labels.printCost}</small><strong>{formatPrintCost(item)}</strong></div>
           <div><small>{labels.ship}</small><strong>{formatMoney(item.shipping_fee)}</strong></div>
           <div><small>{labels.total}</small><strong>{formatLandedCost(item)}</strong></div>
+          {hasTaxData(item) && <div><small>{labels.tax}</small><strong>{formatTaxSummary(item)}</strong></div>}
+          {hasTaxData(item) && <div><small>{labels.netRevenue}</small><strong>{formatMoney(item.net_revenue)}</strong></div>}
           <div><small>{labels.grossMargin}</small><strong>{formatPercent(item.margin_percent, labels.marginMissing)}</strong></div>
         </div>
         <div className="delivery-line">
           <span title={formatDelivery(item.delivery_time, labels)}>{formatDelivery(item.delivery_time, labels)}</span>
           <span>{formatCarrier(item.carrier)}</span>
           <span>SLA {item.sla || "N/A"}</span>
+          {hasTaxData(item) && <span title={formatTaxSource(item)}>{formatTaxImpact(item, labels)}</span>}
         </div>
       </div>
     </article>

@@ -18,8 +18,16 @@ class AgentEngine:
     def __init__(self):
         self.openai_api_key = settings.openai_api_key
         self.azure_api_key = settings.azure_openai_api_key
+        self.llm_timeout = float(settings.llm_timeout_seconds or 15.0)
 
-        if self.azure_api_key:
+        if settings.llm_enabled and settings.llm_api_key:
+            self.client = AsyncOpenAI(
+                api_key=settings.llm_api_key,
+                base_url=settings.llm_base_url or None,
+            )
+            self.is_mock_key = False
+            self.model_name = settings.llm_model or settings.openai_model
+        elif self.azure_api_key:
             self.client = AsyncAzureOpenAI(
                 api_key=self.azure_api_key,
                 azure_endpoint=settings.azure_openai_endpoint,
@@ -30,10 +38,13 @@ class AgentEngine:
         else:
             self.is_mock_key = self.openai_api_key == "mock-key" or not self.openai_api_key
             if not self.is_mock_key:
-                self.client = AsyncOpenAI(api_key=self.openai_api_key)
+                self.client = AsyncOpenAI(
+                    api_key=self.openai_api_key,
+                    base_url=settings.openai_base_url or None,
+                )
             else:
                 self.client = None
-            self.model_name = "gpt-4o-mini"
+            self.model_name = settings.openai_model
         self.trend_service = TrendService()
 
     def _heuristic_parse(self, message: str, slots: Dict[str, Any], current_intent: Optional[str]) -> tuple[str, Dict[str, Any]]:
@@ -114,7 +125,7 @@ class AgentEngine:
                     messages=messages,
                     response_format={"type": "json_object"},
                     temperature=0.2,
-                    timeout=15.0
+                    timeout=self.llm_timeout
                 )
                 llm_response = json.loads(response.choices[0].message.content)
             except Exception:
@@ -183,7 +194,7 @@ class AgentEngine:
                     model=self.model_name,
                     messages=messages,
                     temperature=0.3,
-                    timeout=15.0
+                    timeout=self.llm_timeout
                 )
                 answer = response.choices[0].message.content.strip()
             except Exception:

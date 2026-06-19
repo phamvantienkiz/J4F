@@ -1,10 +1,21 @@
+# Environment / secrets
 .env
+.env*
+!.env.example
+!*.env.example
+*.local
+
+# Local databases / generated state
+*.db
+*.sqlite
+*.sqlite3
+
+# Python / cache
 __pycache__/
 *.py[cod]
 .pytest_cache/
 .venv/
 venv/
-.env.local
 .DS_Store
 .claude/
 .vite/
@@ -13,7 +24,6 @@ frontend/dist/
 *.tsbuildinfo
 node_modules/
 dist/
-.env.example
 .txt
 CLAUDE.md
 Dockerfile

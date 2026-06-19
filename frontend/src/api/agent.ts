@@ -25,7 +25,17 @@ export type RecommendedItem = {
   shipping_fee?: number;
   tax_fee?: number;
   tax_rate?: number;
+  tax_rate_pct?: string;
+  tax_region?: string;
+  tax_sub_region?: string;
+  tax_type?: string;
+  tax_amount?: number;
+  seller_tax?: number;
   buyer_tax?: number;
+  net_revenue?: number;
+  tax_data_source?: string;
+  tax_note?: string;
+  tax_is_estimated?: boolean;
   amount?: number;
   sub_amount?: number;
   payment_processing_fee?: number;

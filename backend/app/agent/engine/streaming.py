@@ -128,7 +128,7 @@ async def run_stream_logic(engine, session_id: str, message: str, history: List[
                 messages=messages,
                 response_format={"type": "json_object"},
                 temperature=0.2,
-                timeout=15.0
+                timeout=getattr(engine, "llm_timeout", 15.0)
             )
             llm_response = json.loads(response.choices[0].message.content)
         except Exception:
@@ -198,7 +198,7 @@ async def run_stream_logic(engine, session_id: str, message: str, history: List[
                 model=engine.model_name,
                 messages=messages,
                 temperature=0.3,
-                timeout=15.0,
+                timeout=getattr(engine, "llm_timeout", 15.0),
                 stream=True
             )
             async for chunk in response_stream:

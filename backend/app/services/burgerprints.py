@@ -9,7 +9,7 @@ class BurgerPrintsClient:
     def __init__(self):
         self.api_key = settings.burgerprints_api_key
         self.base_url_v2 = settings.burgerprints_api_base_url
-        self.base_url_catalog = "https://catalog-api.burgerprints.com/api/v1"
+        self.base_url_catalog = settings.burgerprints_catalog_base_url
 
         self.headers_v2 = {
             "api-key": self.api_key,
@@ -18,7 +18,7 @@ class BurgerPrintsClient:
         }
 
         self.headers_catalog = {
-            "api-key": "burgerprints",
+            "api-key": settings.catalog_api_key,
             "Accept": "application/json"
         }
         self.timeout = 15.0

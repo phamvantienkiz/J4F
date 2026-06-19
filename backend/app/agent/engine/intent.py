@@ -19,13 +19,17 @@ def normalize_slots(slots: Dict[str, Any]) -> Dict[str, Any]:
             new_slots["target_market"] = "GB"
         elif country_upper == "VN":
             new_slots["target_market"] = "VN"
+        elif country_upper == "CA":
+            new_slots["target_market"] = "CA"
+        elif country_upper == "AU":
+            new_slots["target_market"] = "AU"
     # 2. Nếu có target_market nhưng chưa có country
     elif target_market:
         market_upper = str(target_market).upper()
         new_slots["target_market"] = market_upper
         if market_upper == "EU":
             new_slots["country"] = "DE"
-        elif market_upper in ["US", "GB", "VN"]:
+        elif market_upper in ["US", "GB", "VN", "CA", "AU"]:
             new_slots["country"] = market_upper
 
     # Đảm bảo target_market được đặt nếu country là DE/FR mà target_market chưa có
@@ -149,6 +153,27 @@ def parse_intent_and_slots(message: str, slots: Dict[str, Any], current_intent: 
     elif any(w in msg for w in ["việt nam", "vietnam", "vn", "việt"]):
         new_slots["country"] = "VN"
         new_slots["target_market"] = "VN"
+    elif any(w in msg for w in ["canada", " ca ", "ontario", "quebec", "alberta", "british columbia"]):
+        new_slots["country"] = "CA"
+        new_slots["target_market"] = "CA"
+    elif any(w in msg for w in ["australia", "au", "úc", "uc"]):
+        new_slots["country"] = "AU"
+        new_slots["target_market"] = "AU"
+
+    tax_sub_regions = {
+        "california": "CA", "texas": "TX", "new york": "NY", "florida": "FL", "oregon": "OR",
+        "ontario": "ON", "quebec": "QC", "alberta": "AB", "british columbia": "BC",
+        "đức": "DE", "duc": "DE", "germany": "DE", "deutschland": "DE",
+        "pháp": "FR", "phap": "FR", "france": "FR", "netherlands": "NL", "holland": "NL",
+    }
+    explicit_sub_region = re.search(r'(?:state|bang|province|tỉnh|tinh|country|nước|nuoc)\s+([a-z]{2})\b', msg)
+    if explicit_sub_region:
+        new_slots["tax_sub_region"] = explicit_sub_region.group(1).upper()
+    else:
+        for name, code in tax_sub_regions.items():
+            if name in msg:
+                new_slots["tax_sub_region"] = code
+                break
 
     # 3. Trích xuất Ngân sách tối đa (max_base_cost)
     budget_match = re.search(r'(?:dưới|dưới\s*khoảng|dưới\s*mức|<|under)\s*(?:\$)?\s*(\d+(?:\.\d+)?)\s*(?:\$|đô|usd|eur|đ)?', msg)
@@ -163,7 +188,7 @@ def parse_intent_and_slots(message: str, slots: Dict[str, Any], current_intent: 
         new_slots["max_shipping_days"] = int(ship_match.group(1))
 
     # 5. Trích xuất Giá bán mong muốn (selling_price)
-    sell_match = re.search(r'(?:bán\s*lẻ|giá\s*lẻ|giá\s*bán\s*lẻ|bán|giá\s*bán|selling\s*price|retail\s*price|retail|giá)\s*(?:\$)?\s*(\d+(?:\.\d+)?)\s*(?:\$|đô|usd|eur|đ)?', msg)
+    sell_match = re.search(r'(?:bán\s*lẻ|giá\s*lẻ|giá\s*bán\s*lẻ|bán|giá\s*bán|selling\s*price|sell\s*price|selling|sell|retail\s*price|retail|giá)\s*(?:\$)?\s*(\d+(?:\.\d+)?)\s*(?:\$|đô|usd|eur|đ)?', msg)
     if sell_match and not budget_match:
         new_slots["selling_price"] = float(sell_match.group(1))
         if intent == "general_chat":

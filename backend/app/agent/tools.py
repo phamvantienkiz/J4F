@@ -2,6 +2,7 @@ from sqlmodel import Session, select
 import app.database as db
 from app.models.catalog import Product, ProductVariant, ShippingZone, ShippingFee
 from app.services.burgerprints import BurgerPrintsClient
+from app.services.tax_engine import calculate_tax
 from typing import List, Dict, Any, Optional
 import math
 import logging
@@ -10,19 +11,162 @@ import datetime
 
 logger = logging.getLogger(__name__)
 
+EU_TAX_COUNTRY_CODES = {
+    "AT", "BE", "BG", "CY", "CZ", "DE", "DK", "EE", "ES", "FI", "FR", "GR", "HR",
+    "HU", "IE", "IT", "LT", "LU", "LV", "MT", "NL", "PL", "PT", "RO", "SE", "SI", "SK",
+}
+
+COUNTRY_CODE_ALIASES = {
+    "US": "US",
+    "USA": "US",
+    "UNITED STATES": "US",
+    "UNITED STATES OF AMERICA": "US",
+    "AMERICA": "US",
+    "MỸ": "US",
+    "MY": "US",
+    "DE": "DE",
+    "GERMANY": "DE",
+    "DEUTSCHLAND": "DE",
+    "ĐỨC": "DE",
+    "DUC": "DE",
+    "FR": "FR",
+    "FRANCE": "FR",
+    "PHÁP": "FR",
+    "PHAP": "FR",
+    "GB": "GB",
+    "UK": "GB",
+    "UNITED KINGDOM": "GB",
+    "GREAT BRITAIN": "GB",
+    "ENGLAND": "GB",
+    "ANH": "GB",
+    "VN": "VN",
+    "VIETNAM": "VN",
+    "VIET NAM": "VN",
+    "VIỆT NAM": "VN",
+    "VIỆT": "VN",
+    "CA": "CA",
+    "CANADA": "CA",
+    "AU": "AU",
+    "AUS": "AU",
+    "AUSTRALIA": "AU",
+    "ÚC": "AU",
+    "UC": "AU",
+    "EU": "EU",
+    "EUROPE": "EU",
+    "EUROPEAN UNION": "EU",
+    "NL": "NL",
+    "NETHERLANDS": "NL",
+    "HOLLAND": "NL",
+    "ES": "ES",
+    "SPAIN": "ES",
+    "IT": "IT",
+    "ITALY": "IT",
+    "PL": "PL",
+    "POLAND": "PL",
+}
+
+
+def normalize_country_code(country: str | None) -> str:
+    raw = str(country or "US").strip()
+    if not raw:
+        return "US"
+
+    country_code = re.sub(r"[\s_-]+", " ", raw.upper()).strip()
+    if country_code in COUNTRY_CODE_ALIASES:
+        return COUNTRY_CODE_ALIASES[country_code]
+
+    tokens = set(re.findall(r"[A-ZÀ-Ỹ]+", country_code))
+    if {"UNITED", "STATES"}.issubset(tokens):
+        return "US"
+    if {"UNITED", "KINGDOM"}.issubset(tokens):
+        return "GB"
+    if "VIET" in tokens or "VIỆT" in tokens:
+        return "VN"
+    if "EU" in tokens or "EUROPE" in tokens:
+        return "EU"
+
+    return country_code
+
+
+def tax_region_for_country(country_code: str) -> tuple[str, str | None]:
+    country_code = normalize_country_code(country_code)
+    if country_code in EU_TAX_COUNTRY_CODES:
+        return "EU", country_code
+    return country_code, None
+
+
 def get_tax_rate(country_code: str) -> float:
-    """
-    Trả về thuế suất giả định dựa trên quốc gia để tính landed cost.
-    - US: 8% (Sales tax trung bình)
-    - EU (DE, FR, GB): 19% (VAT trung bình)
-    - VN: 0% (Không tính thuế nội địa)
-    """
-    c = country_code.upper()
-    if c == "US":
-        return 0.08
-    elif c in ["DE", "FR", "GB", "EU"]:
-        return 0.19
-    return 0.0
+    """Backward-compatible helper: returns the configured destination tax rate."""
+    tax_region, tax_sub_region = tax_region_for_country(country_code)
+    return calculate_tax(1.0, tax_region, tax_sub_region).rate
+
+
+def add_tax_pricing_fields(
+    item: Dict[str, Any],
+    selling_price: Optional[float],
+    country_code: str,
+    tax_sub_region: Optional[str] = None,
+    product_type: Optional[str] = None,
+    quantity: int = 1,
+) -> Dict[str, Any]:
+    if selling_price is None:
+        return item
+
+    quantity = max(1, int(quantity or item.get("quantity") or 1))
+    total_selling_price = float(selling_price) * quantity
+    tax_region, default_sub_region = tax_region_for_country(country_code)
+    tax_result = calculate_tax(
+        total_selling_price,
+        tax_region,
+        tax_sub_region or default_sub_region,
+        product_type or item.get("product_name") or item.get("display_name"),
+    )
+
+    fulfillment_cost = float(item.get("landed_cost") or 0.0)
+    platform_fee = float(item.get("payment_processing_fee") or 0.0)
+    total_cost = fulfillment_cost + platform_fee
+    profit = tax_result.net_revenue - total_cost
+    margin_percent = (profit / tax_result.net_revenue) * 100 if tax_result.net_revenue else 0.0
+
+    item.update({
+        "selling_price": round(float(selling_price), 2),
+        "total_selling_price": round(total_selling_price, 2),
+        "net_revenue": round(tax_result.net_revenue, 2),
+        "profit": round(profit, 2),
+        "margin_percent": round(margin_percent, 2),
+        "tax_region": tax_result.region,
+        "tax_sub_region": tax_result.sub_region,
+        "tax_type": tax_result.tax_type,
+        "tax_rate": tax_result.rate,
+        "tax_rate_pct": tax_result.rate_pct,
+        "tax_amount": tax_result.tax_amount,
+        "buyer_tax": tax_result.tax_amount if tax_result.tax_type == "Sales Tax" else 0.0,
+        "seller_tax": 0.0 if tax_result.tax_type == "Sales Tax" else tax_result.tax_amount,
+        "tax_fee": 0.0 if tax_result.tax_type == "Sales Tax" else tax_result.tax_amount,
+        "tax_data_source": tax_result.data_source,
+        "tax_note": tax_result.note,
+        "tax_is_estimated": tax_result.is_estimated,
+    })
+    return item
+
+
+def minimum_selling_price_for_margin(
+    item: Dict[str, Any],
+    min_margin: float,
+    country_code: str,
+    tax_sub_region: Optional[str] = None,
+    product_type: Optional[str] = None,
+) -> float:
+    target_margin = max(0.0, min(float(min_margin or 0.0) / 100, 0.99))
+    fulfillment_cost = float(item.get("landed_cost") or 0.0)
+    platform_fee = float(item.get("payment_processing_fee") or 0.0)
+    total_cost = fulfillment_cost + platform_fee
+    net_required = total_cost / (1 - target_margin) if target_margin < 1 else total_cost
+    tax_region, default_sub_region = tax_region_for_country(country_code)
+    sample_tax = calculate_tax(1.0, tax_region, tax_sub_region or default_sub_region, product_type or item.get("product_name"))
+    if sample_tax.tax_type == "Sales Tax":
+        return round(net_required, 2)
+    return round(net_required * (1 + sample_tax.rate), 2)
 
 def mask_pii(text: str) -> str:
     """
@@ -89,18 +233,7 @@ def search_products_tool(
     Tìm kiếm và đề xuất các biến thể phù hợp nhất.
     Có chế độ "lựa chọn thay thế gần nhất" (nearest alternative mode) nếu không có SKU nào khớp 100%.
     """
-    country_code = country.upper() if country else "US"
-    # Chuẩn hóa tên quốc gia thành mã code
-    if "MỸ" in country_code or "US" in country_code or "STATE" in country_code:
-        country_code = "US"
-    elif "ĐỨC" in country_code or "DE" in country_code or "GERMANY" in country_code:
-        country_code = "DE"
-    elif "PHÁP" in country_code or "FR" in country_code or "FRANCE" in country_code:
-        country_code = "FR"
-    elif "ANH" in country_code or "GB" in country_code or "UK" in country_code or "KINGDOM" in country_code:
-        country_code = "GB"
-    elif "VIỆT" in country_code or "VN" in country_code:
-        country_code = "VN"
+    country_code = normalize_country_code(country)
 
     with Session(db.engine) as session:
         # Tìm các sản phẩm khớp với loại sản phẩm
@@ -181,12 +314,12 @@ def search_products_tool(
                 second_cost = var.second_item_price if var.second_item_price is not None else var.clone_price
                 base_cost_value += second_cost
 
-            # Tính thuế
-            tax_rate = get_tax_rate(country_code)
-            tax_fee = base_cost_value * tax_rate
+            # Không tính thuế khi chưa có selling_price; tax engine sẽ tính từ giá bán.
+            tax_rate = 0.0
+            tax_fee = 0.0
 
-            # Tính Landed Cost = Base Cost + Shipping + Tax
-            landed_cost = base_cost_value + shipping_cost + tax_fee
+            # Fulfillment landed cost = Base/print cost + Shipping. Tax hiển thị riêng khi có giá bán.
+            landed_cost = base_cost_value + shipping_cost
 
             prod = next((p for p in products if p.id == var.product_id), None)
             prod_name = prod.name if prod else "Product"
@@ -258,17 +391,7 @@ def compare_shipping_tool(product_type: str, country: str, print_sides: str = "f
     """
     So sánh phí vận chuyển và thời gian vận chuyển của các xưởng đến một quốc gia cụ thể.
     """
-    country_code = country.upper() if country else "US"
-    if "MỸ" in country_code or "US" in country_code or "STATE" in country_code:
-        country_code = "US"
-    elif "ĐỨC" in country_code or "DE" in country_code or "GERMANY" in country_code:
-        country_code = "DE"
-    elif "PHÁP" in country_code or "FR" in country_code or "FRANCE" in country_code:
-        country_code = "FR"
-    elif "ANH" in country_code or "GB" in country_code or "UK" in country_code or "KINGDOM" in country_code:
-        country_code = "GB"
-    elif "VIỆT" in country_code or "VN" in country_code:
-        country_code = "VN"
+    country_code = normalize_country_code(country)
 
     with Session(db.engine) as session:
         # Lấy thông tin Shipping Zone và Fee
@@ -336,8 +459,8 @@ def compare_shipping_tool(product_type: str, country: str, print_sides: str = "f
                     carrier_name = fee.carrier
                     del_time = fee.delivery_time or "3-5 business days"
 
-                    tax_rate = get_tax_rate(country_code)
-                    min_landed_cost = p_info["min_base_cost"] + shipping_fee + (p_info["min_base_cost"] * tax_rate)
+                    tax_rate = 0.0
+                    min_landed_cost = p_info["min_base_cost"] + shipping_fee
 
                     compare_results.append({
                         "partner_name": partner_name,
@@ -346,7 +469,7 @@ def compare_shipping_tool(product_type: str, country: str, print_sides: str = "f
                         "base_cost": round(p_info["min_base_cost"], 2),
                         "shipping_fee": round(shipping_fee, 2),
                         "second_item_price": round(p_info["second_item_price"], 2) if p_info["second_item_price"] is not None else round(p_info["clone_price"], 2),
-                        "tax_fee": round(p_info["min_base_cost"] * tax_rate, 2),
+                        "tax_fee": 0.0,
                         "landed_cost": round(min_landed_cost, 2),
                         "delivery_time": del_time,
                         "color": p_info["color"],
@@ -362,8 +485,8 @@ def compare_shipping_tool(product_type: str, country: str, print_sides: str = "f
                 else:
                     del_time = "7-10 business days" if country_code != "US" else "3-5 business days"
 
-                tax_rate = get_tax_rate(country_code)
-                min_landed_cost = p_info["min_base_cost"] + shipping_fee + (p_info["min_base_cost"] * tax_rate)
+                tax_rate = 0.0
+                min_landed_cost = p_info["min_base_cost"] + shipping_fee
 
                 compare_results.append({
                     "partner_name": partner_name,
@@ -372,7 +495,7 @@ def compare_shipping_tool(product_type: str, country: str, print_sides: str = "f
                     "base_cost": round(p_info["min_base_cost"], 2),
                     "shipping_fee": round(shipping_fee, 2),
                     "second_item_price": round(p_info["second_item_price"], 2) if p_info["second_item_price"] is not None else round(p_info["clone_price"], 2),
-                    "tax_fee": round(p_info["min_base_cost"] * tax_rate, 2),
+                    "tax_fee": 0.0,
                     "landed_cost": round(min_landed_cost, 2),
                     "delivery_time": del_time,
                     "color": p_info["color"],
@@ -390,22 +513,13 @@ def calculate_landed_cost_tool(
     country: str,
     quantity: int = 1,
     selling_price: Optional[float] = None,
-    print_sides: str = "front"
+    print_sides: str = "front",
+    tax_sub_region: Optional[str] = None,
 ) -> Dict[str, Any]:
     """
     Tính toán landed cost chi tiết cho 1 SKU cụ thể và tính toán Margin / Profit nếu có giá bán.
     """
-    country_code = country.upper() if country else "US"
-    if "MỸ" in country_code or "US" in country_code or "STATE" in country_code:
-        country_code = "US"
-    elif "ĐỨC" in country_code or "DE" in country_code or "GERMANY" in country_code:
-        country_code = "DE"
-    elif "PHÁP" in country_code or "FR" in country_code or "FRANCE" in country_code:
-        country_code = "FR"
-    elif "ANH" in country_code or "GB" in country_code or "UK" in country_code or "KINGDOM" in country_code:
-        country_code = "GB"
-    elif "VIỆT" in country_code or "VN" in country_code:
-        country_code = "VN"
+    country_code = normalize_country_code(country)
 
     with Session(db.engine) as session:
         # Tìm variant bằng SKU
@@ -454,13 +568,12 @@ def calculate_landed_cost_tool(
             second_cost = variant.second_item_price if variant.second_item_price is not None else variant.clone_price
             base_cost_value += second_cost
 
-        # Thuế
-        tax_rate = get_tax_rate(country_code)
         total_base = base_cost_value * quantity
-        tax_fee = total_base * tax_rate
+        tax_rate = 0.0
+        tax_fee = 0.0
 
-        # Landed cost = Total Base + Shipping + Tax
-        landed_cost = total_base + shipping_fee + tax_fee
+        # Fulfillment landed cost = Total Base + Shipping. Tax is calculated from selling price below.
+        landed_cost = total_base + shipping_fee
 
         result = {
             "sku": variant.sku,
@@ -485,16 +598,9 @@ def calculate_landed_cost_tool(
             "print_sides": print_sides
         }
 
-        # Nếu có giá bán, tính Profit và Margin
+        # Nếu có giá bán, tính tax-adjusted Profit và Margin
         if selling_price is not None:
-            total_selling_price = selling_price * quantity
-            profit = total_selling_price - landed_cost
-            margin_percent = (profit / total_selling_price) * 100 if total_selling_price > 0 else 0
-
-            result["selling_price"] = round(selling_price, 2)
-            result["total_selling_price"] = round(total_selling_price, 2)
-            result["profit"] = round(profit, 2)
-            result["margin_percent"] = round(margin_percent, 2)
+            add_tax_pricing_fields(result, selling_price, country_code, tax_sub_region, product_name, quantity=quantity)
 
         return result
 

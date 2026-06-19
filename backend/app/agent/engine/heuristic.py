@@ -6,8 +6,46 @@ from app.agent.tools import (
     search_products_tool,
     compare_shipping_tool,
     calculate_landed_cost_tool,
-    create_draft_order_tool
+    create_draft_order_tool,
+    add_tax_pricing_fields,
+    minimum_selling_price_for_margin,
 )
+
+
+def tax_summary_line(item: dict, lang: str) -> str:
+    if not item or not item.get("tax_type"):
+        return ""
+
+    tax_amount = item.get("tax_amount", item.get("tax_fee", 0.0))
+    tax_type = item.get("tax_type", "Tax")
+    tax_rate = item.get("tax_rate_pct") or f"{int(item.get('tax_rate', 0) * 100)}%"
+    net_revenue = item.get("net_revenue")
+    buyer_tax = item.get("buyer_tax", 0.0)
+    seller_tax = item.get("seller_tax", 0.0)
+
+    if lang == "vi":
+        line = f" Thuế ước tính: **${tax_amount}** ({tax_type} {tax_rate})"
+        if buyer_tax:
+            line += f", buyer trả thêm **${buyer_tax}**"
+        elif seller_tax:
+            line += f", thuế nhúng trong giá **${seller_tax}**"
+        if net_revenue is not None:
+            line += f", doanh thu sau thuế **${net_revenue}**."
+        else:
+            line += "."
+        return line
+
+    line = f" Estimated tax: **${tax_amount}** ({tax_type} {tax_rate})"
+    if buyer_tax:
+        line += f", buyer pays **${buyer_tax}** on top"
+    elif seller_tax:
+        line += f", embedded tax **${seller_tax}**"
+    if net_revenue is not None:
+        line += f", net revenue **${net_revenue}**."
+    else:
+        line += "."
+    return line
+
 
 async def execute_heuristic_flow(engine, intent: str, slots: dict, message: str, lang: str, country_code: str) -> dict:
     """Thực thi nghiệp vụ thô, gọi tools và chuẩn bị dữ liệu/câu trả lời fallback."""
@@ -20,6 +58,7 @@ async def execute_heuristic_flow(engine, intent: str, slots: dict, message: str,
     quantity = slots.get("quantity", 1)
     shipping_address = slots.get("shipping_address")
     print_sides = slots.get("print_sides", "front")
+    tax_sub_region = slots.get("tax_sub_region") or slots.get("sub_region") or slots.get("state") or slots.get("province")
 
     res = {
         "answer": "", "items": [], "tool_data": None, "is_nearest": False,
@@ -61,17 +100,12 @@ async def execute_heuristic_flow(engine, intent: str, slots: dict, message: str,
             warning_msg = ""
             if selling_price is not None:
                 for item in recommended_items:
-                    item["selling_price"] = selling_price
-                    item["profit"] = round(selling_price - item["landed_cost"], 2)
-                    item["margin_percent"] = round((item["profit"] / selling_price) * 100, 2)
-                recommended_items.sort(key=lambda x: x["profit"], reverse=True)
+                    add_tax_pricing_fields(item, selling_price, resolved_country, tax_sub_region, item.get("product_name") or product_type)
+                recommended_items.sort(key=lambda x: x.get("profit", 0), reverse=True)
             elif min_margin is not None and min_margin < 100:
                 for item in recommended_items:
-                    l_cost = item["landed_cost"]
-                    s_price = round(l_cost / (1 - min_margin / 100), 2)
-                    item["selling_price"] = s_price
-                    item["profit"] = round(s_price - l_cost, 2)
-                    item["margin_percent"] = round((item["profit"] / s_price) * 100, 2)
+                    s_price = minimum_selling_price_for_margin(item, min_margin, resolved_country, tax_sub_region, item.get("product_name") or product_type)
+                    add_tax_pricing_fields(item, s_price, resolved_country, tax_sub_region, item.get("product_name") or product_type)
                 recommended_items.sort(key=lambda x: x["landed_cost"])
                 warning_msg = f"\n*(Lưu ý: Để đạt mức profit margin tối thiểu {min_margin}%, hệ thống đã tự động tính toán giá bán lẻ gợi ý tối thiểu cho mỗi sản phẩm. Các sản phẩm được sắp xếp theo tổng chi phí fulfillment (Landed Cost) thấp nhất.)*"
                 if lang == "en":
@@ -102,7 +136,7 @@ async def execute_heuristic_flow(engine, intent: str, slots: dict, message: str,
                 ans += f"Để tối ưu hóa doanh số trong thời điểm này, mình đề xuất bạn nên tập trung vào các dòng sản phẩm: **{product_types_str}**.\n\n"
                 if recommended_items:
                     ans += f"Dưới đây là một số sản phẩm tốt nhất mình tìm thấy từ catalog:\n"
-                    ans += f"- SKU **{recommended_items[0]['sku']}** ({recommended_items[0]['display_name']}) từ xưởng **{recommended_items[0]['partner_name']}**. Chi phí: Base **${recommended_items[0]['base_cost']}**, Ship **${recommended_items[0]['shipping_fee']}**, Giao hàng: **{recommended_items[0]['delivery_time']}**.{warning_msg}"
+                    ans += f"- SKU **{recommended_items[0]['sku']}** ({recommended_items[0]['display_name']}) từ xưởng **{recommended_items[0]['partner_name']}**. Chi phí: Base **${recommended_items[0]['base_cost']}**, Ship **${recommended_items[0]['shipping_fee']}**, Giao hàng: **{recommended_items[0]['delivery_time']}**.{tax_summary_line(recommended_items[0], lang)}{warning_msg}"
                 else:
                     ans += "Hiện tại không có dữ liệu sản phẩm trong DB Cache phù hợp cho các dòng sản phẩm được đề xuất."
             else:
@@ -111,7 +145,7 @@ async def execute_heuristic_flow(engine, intent: str, slots: dict, message: str,
                 ans += f"To maximize sales during this period, I recommend focusing on these products: **{product_types_str}**.\n\n"
                 if recommended_items:
                     ans += f"Here are some of the best matching products from the catalog:\n"
-                    ans += f"- SKU **{recommended_items[0]['sku']}** ({recommended_items[0]['display_name']}) from workshop **{recommended_items[0]['partner_name']}**. Costs: Base **${recommended_items[0]['base_cost']}**, Ship **${recommended_items[0]['shipping_fee']}**, Delivery: **{recommended_items[0]['delivery_time']}**.{warning_msg}"
+                    ans += f"- SKU **{recommended_items[0]['sku']}** ({recommended_items[0]['display_name']}) from workshop **{recommended_items[0]['partner_name']}**. Costs: Base **${recommended_items[0]['base_cost']}**, Ship **${recommended_items[0]['shipping_fee']}**, Delivery: **{recommended_items[0]['delivery_time']}**.{tax_summary_line(recommended_items[0], lang)}{warning_msg}"
                 else:
                     ans += "Currently no product data in DB Cache fits the recommended product lines."
             res["answer"] = ans
@@ -127,17 +161,12 @@ async def execute_heuristic_flow(engine, intent: str, slots: dict, message: str,
             warning_msg = ""
             if selling_price is not None:
                 for item in items:
-                    item["selling_price"] = selling_price
-                    item["profit"] = round(selling_price - item["landed_cost"], 2)
-                    item["margin_percent"] = round((item["profit"] / selling_price) * 100, 2)
-                items.sort(key=lambda x: x["profit"], reverse=True)
+                    add_tax_pricing_fields(item, selling_price, country_code, tax_sub_region, item.get("product_name") or product_type)
+                items.sort(key=lambda x: x.get("profit", 0), reverse=True)
             elif min_margin is not None and min_margin < 100:
                 for item in items:
-                    l_cost = item["landed_cost"]
-                    s_price = round(l_cost / (1 - min_margin / 100), 2)
-                    item["selling_price"] = s_price
-                    item["profit"] = round(s_price - l_cost, 2)
-                    item["margin_percent"] = round((item["profit"] / s_price) * 100, 2)
+                    s_price = minimum_selling_price_for_margin(item, min_margin, country_code, tax_sub_region, item.get("product_name") or product_type)
+                    add_tax_pricing_fields(item, s_price, country_code, tax_sub_region, item.get("product_name") or product_type)
                 items.sort(key=lambda x: x["landed_cost"])
                 warning_msg = f"\n*(Lưu ý: Để đạt mức profit margin tối thiểu {min_margin}%, hệ thống đã tự động tính toán giá bán lẻ gợi ý tối thiểu cho mỗi sản phẩm. Các sản phẩm được sắp xếp theo tổng chi phí fulfillment (Landed Cost) thấp nhất.)*"
                 if lang == "en":
@@ -192,19 +221,19 @@ async def execute_heuristic_flow(engine, intent: str, slots: dict, message: str,
 
                 if lang == "vi":
                     res["answer"] = f"Chế độ lựa chọn thay thế gần nhất: Mình không tìm thấy biến thể {product_type} nào đáp ứng hoàn toàn điều kiện {filter_str} tại {country_code}. Tuy nhiên, đây là những lựa chọn thay thế tốt nhất gần đạt yêu cầu của bạn:\n"
-                    res["answer"] += f"- SKU **{best_item['sku']}** ({'in 2 mặt' if print_sides == 'both' else 'in 1 mặt'}) từ xưởng **{best_item['partner_name']}**{excess_str}. Chi phí: Base **${best_item['base_cost']}**, Ship **${best_item['shipping_fee']}**, Landed Cost: **${best_item['landed_cost']}**, Giao hàng: **{best_item['delivery_time']}**.{warning_msg}"
+                    res["answer"] += f"- SKU **{best_item['sku']}** ({'in 2 mặt' if print_sides == 'both' else 'in 1 mặt'}) từ xưởng **{best_item['partner_name']}**{excess_str}. Chi phí: Base **${best_item['base_cost']}**, Ship **${best_item['shipping_fee']}**, Landed Cost: **${best_item['landed_cost']}**, Giao hàng: **{best_item['delivery_time']}**.{tax_summary_line(best_item, lang)}{warning_msg}"
                 else:
                     res["answer"] = f"Nearest Alternative Mode: I could not find any {product_type} variants fully meeting the conditions {filter_str} for {country_code}. However, here are the best alternative options close to your request:\n"
-                    res["answer"] += f"- SKU **{best_item['sku']}** ({'2-sided print' if print_sides == 'both' else '1-sided print'}) from workshop **{best_item['partner_name']}**{excess_str}. Costs: Base **${best_item['base_cost']}**, Ship **${best_item['shipping_fee']}**, Landed Cost: **${best_item['landed_cost']}**, Delivery: **{best_item['delivery_time']}**.{warning_msg}"
+                    res["answer"] += f"- SKU **{best_item['sku']}** ({'2-sided print' if print_sides == 'both' else '1-sided print'}) from workshop **{best_item['partner_name']}**{excess_str}. Costs: Base **${best_item['base_cost']}**, Ship **${best_item['shipping_fee']}**, Landed Cost: **${best_item['landed_cost']}**, Delivery: **{best_item['delivery_time']}**.{tax_summary_line(best_item, lang)}{warning_msg}"
             else:
                 best_item = items[0] if items else None
                 if best_item:
                     if lang == "vi":
                         res["answer"] = f"Dựa trên yêu cầu của bạn, mình đã tìm thấy {len(items)} biến thể {product_type} ({'in 2 mặt' if print_sides == 'both' else 'in 1 mặt'}) tại thị trường {country_code}{filter_str} hoạt động tốt:\n"
-                        res["answer"] += f"- **Khuyến nghị tốt nhất:** SKU **{best_item['sku']}** từ xưởng **{best_item['partner_name']}**. Chi phí: Base **${best_item['base_cost']}**, Ship **${best_item['shipping_fee']}**, Landed Cost: **${best_item['landed_cost']}**, Giao hàng: **{best_item['delivery_time']}**.{warning_msg}\n"
+                        res["answer"] += f"- **Khuyến nghị tốt nhất:** SKU **{best_item['sku']}** từ xưởng **{best_item['partner_name']}**. Chi phí: Base **${best_item['base_cost']}**, Ship **${best_item['shipping_fee']}**, Landed Cost: **${best_item['landed_cost']}**, Giao hàng: **{best_item['delivery_time']}**.{tax_summary_line(best_item, lang)}{warning_msg}\n"
                     else:
                         res["answer"] = f"Based on your request, I found {len(items)} {product_type} variants ({'2-sided print' if print_sides == 'both' else '1-sided print'}) for market {country_code}{filter_str}:\n"
-                        res["answer"] += f"- **Best recommendation:** SKU **{best_item['sku']}** from workshop **{best_item['partner_name']}**. Costs: Base **${best_item['base_cost']}**, Ship **${best_item['shipping_fee']}**, Landed Cost: **${best_item['landed_cost']}**, Delivery: **{best_item['delivery_time']}**.{warning_msg}\n"
+                        res["answer"] += f"- **Best recommendation:** SKU **{best_item['sku']}** from workshop **{best_item['partner_name']}**. Costs: Base **${best_item['base_cost']}**, Ship **${best_item['shipping_fee']}**, Landed Cost: **${best_item['landed_cost']}**, Delivery: **{best_item['delivery_time']}**.{tax_summary_line(best_item, lang)}{warning_msg}\n"
 
                     other_items = []
                     seen_partners = {best_item['partner_name']}
@@ -281,27 +310,45 @@ async def execute_heuristic_flow(engine, intent: str, slots: dict, message: str,
                 res["answer"] = "To calculate landed cost and profit margin accurately, please provide the SKU code of the product (e.g., `USG5000-Black-S`)!"
         else:
             calc = calculate_landed_cost_tool(
-                sku=sku, country=country_code, quantity=quantity, selling_price=selling_price, print_sides=print_sides
+                sku=sku, country=country_code, quantity=quantity, selling_price=selling_price, print_sides=print_sides, tax_sub_region=tax_sub_region
             )
             if "error" in calc:
                 res["answer"] = f"Lỗi: {calc['error']}" if lang == "vi" else f"Error: {calc['error']}"
             else:
+                suggested_price = None
+                if selling_price is None and min_margin is not None and min_margin < 100:
+                    suggested_price = minimum_selling_price_for_margin(calc, min_margin, country_code, tax_sub_region, calc.get("product_name"))
+                    add_tax_pricing_fields(calc, suggested_price, country_code, tax_sub_region, calc.get("product_name"), quantity=quantity)
+
                 res["items"] = [calc]
                 res["tool_data"] = calc
                 print_sides_desc = ("in 2 mặt" if print_sides == "both" else "in 1 mặt") if lang == "vi" else ("2-sided print" if print_sides == "both" else "1-sided print")
+                has_tax_data = any(calc.get(field) is not None for field in ("tax_type", "tax_amount", "net_revenue"))
 
                 if lang == "vi":
                     ans = f"Báo cáo chi tiết Landed Cost cho SKU **{sku}** (Số lượng: {quantity}, {print_sides_desc}) tới **{country_code}**:\n"
                     ans += f"- Giá gốc (Base Cost): **${calc['total_base_cost']}** (${calc['base_cost']} x {quantity})\n"
                     ans += f"- Phí vận chuyển: **${calc['shipping_fee']}** ({calc['delivery_time']})\n"
-                    ans += f"- Thuế: **${calc['tax_fee']}** (Thuế suất: {int(calc['tax_rate']*100)}%)\n"
-                    ans += f"- **Tổng chi phí (Landed Cost): ${calc['landed_cost']}**\n"
+                    if has_tax_data:
+                        tax_display = calc.get('tax_amount', calc.get('tax_fee', 0.0))
+                        tax_type = calc.get('tax_type', 'Tax')
+                        tax_rate = calc.get('tax_rate_pct') or f"{int(calc.get('tax_rate', 0) * 100)}%"
+                        ans += f"- Thuế ước tính: **${tax_display}** ({tax_type} {tax_rate})\n"
+                        if calc.get('net_revenue') is not None:
+                            ans += f"- Doanh thu sau thuế: **${calc['net_revenue']}**\n"
+                    ans += f"- **Tổng chi phí fulfillment (Landed Cost): ${calc['landed_cost']}**\n"
                 else:
                     ans = f"Detailed Landed Cost report for SKU **{sku}** (Quantity: {quantity}, {print_sides_desc}) to **{country_code}**:\n"
                     ans += f"- Base Cost: **${calc['total_base_cost']}** (${calc['base_cost']} x {quantity})\n"
                     ans += f"- Shipping Fee: **${calc['shipping_fee']}** ({calc['delivery_time']})\n"
-                    ans += f"- Tax: **${calc['tax_fee']}** (Tax rate: {int(calc['tax_rate']*100)}%)\n"
-                    ans += f"- **Total Cost (Landed Cost): ${calc['landed_cost']}**\n"
+                    if has_tax_data:
+                        tax_display = calc.get('tax_amount', calc.get('tax_fee', 0.0))
+                        tax_type = calc.get('tax_type', 'Tax')
+                        tax_rate = calc.get('tax_rate_pct') or f"{int(calc.get('tax_rate', 0) * 100)}%"
+                        ans += f"- Estimated tax: **${tax_display}** ({tax_type} {tax_rate})\n"
+                        if calc.get('net_revenue') is not None:
+                            ans += f"- Net revenue after tax: **${calc['net_revenue']}**\n"
+                    ans += f"- **Fulfillment Cost (Landed Cost): ${calc['landed_cost']}**\n"
 
                 if selling_price is not None:
                     if lang == "vi":
@@ -320,21 +367,15 @@ async def execute_heuristic_flow(engine, intent: str, slots: dict, message: str,
                             ans += f"Note: This margin is lower than your target margin of {min_margin}%."
                         elif min_margin:
                             ans += f"Meets target margin of {min_margin}%."
-                elif min_margin is not None and min_margin < 100:
-                    s_price = round(calc["landed_cost"] / (1 - min_margin / 100), 2)
-                    calc["selling_price"] = s_price
-                    calc["total_selling_price"] = round(s_price * quantity, 2)
-                    calc["profit"] = round(calc["total_selling_price"] - calc["landed_cost"], 2)
-                    calc["margin_percent"] = round((calc["profit"] / calc["total_selling_price"]) * 100, 2)
-
+                elif suggested_price is not None:
                     if lang == "vi":
                         ans += f"\nĐể đạt mức profit margin tối thiểu là **{min_margin}%**:\n"
-                        ans += f"- **Giá bán đề xuất tối thiểu: ${s_price}**\n"
+                        ans += f"- **Giá bán đề xuất tối thiểu: ${suggested_price}**\n"
                         ans += f"- Lợi nhuận gộp ước tính: **${calc['profit']}**\n"
                         ans += f"- Tỷ suất lợi nhuận thực tế: **{calc['margin_percent']}%**\n"
                     else:
                         ans += f"\nTo achieve a minimum profit margin of **{min_margin}%**:\n"
-                        ans += f"- **Minimum suggested selling price: ${s_price}**\n"
+                        ans += f"- **Minimum suggested selling price: ${suggested_price}**\n"
                         ans += f"- Estimated Gross Profit: **${calc['profit']}**\n"
                         ans += f"- Actual Profit Margin: **{calc['margin_percent']}%**\n"
                 else:
@@ -370,7 +411,7 @@ async def execute_heuristic_flow(engine, intent: str, slots: dict, message: str,
                 res["question"] = "Hãy gõ 'xác nhận tạo sandbox order' để hoàn thành việc đặt đơn hàng nháp." if lang == "vi" else "Type 'confirm create sandbox order' to finalize the draft order."
 
                 calc = calculate_landed_cost_tool(
-                    sku=sku, country=shipping_address.get("country", country_code), quantity=quantity, print_sides=print_sides
+                    sku=sku, country=shipping_address.get("country", country_code), quantity=quantity, print_sides=print_sides, tax_sub_region=tax_sub_region
                 )
                 res["tool_data"] = calc
 

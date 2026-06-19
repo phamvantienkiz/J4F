@@ -992,6 +992,11 @@ button:disabled {
   font-weight: 800;
 }
 
+.mini-row.with-tax {
+  min-width: 1120px;
+  grid-template-columns: minmax(84px, 0.75fr) 44px minmax(96px, 0.8fr) 58px minmax(78px, 0.75fr) 58px minmax(88px, 0.8fr) minmax(108px, 0.9fr) minmax(98px, 0.85fr) minmax(82px, 0.75fr) minmax(92px, 0.8fr) minmax(112px, 1fr) minmax(92px, 0.85fr);
+}
+
 .mini-row-header {
   padding: 0 12px 2px;
   border: 0;
@@ -1024,7 +1029,11 @@ button:disabled {
 .mini-row > span:nth-child(5),
 .mini-row > span:nth-child(7),
 .mini-row > span:nth-child(9),
-.mini-row > span:nth-child(10) {
+.mini-row > span:nth-child(10),
+.mini-row.with-tax > span:nth-child(8),
+.mini-row.with-tax > span:nth-child(9),
+.mini-row.with-tax > span:nth-child(11),
+.mini-row.with-tax > span:nth-child(12) {
   overflow: visible;
   white-space: normal;
 }
