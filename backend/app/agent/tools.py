@@ -372,11 +372,18 @@ SEARCH_PRODUCT_CANDIDATE_LIMIT = 12
 
 
 def _expand_search_tokens(product_type: Optional[str]) -> Optional[List[str]]:
+    """
+    Expand search tokens based on product type query.
+    Uses priority-based PRODUCT_SEARCH_GROUPS with exclusion blacklists to prevent cross-category bleeding.
+
+    Returns:
+        List of search tokens, or None if product_type is empty/all/tất cả
+    """
     keyword = (product_type or "").strip().lower()
     if keyword in ALL_PRODUCT_KEYWORDS:
         return None
 
-    # Loại bỏ các tiền tố tìm kiếm để tránh ảnh hưởng đến từ khóa chính
+    # Strip common search prefixes
     prefixes_to_strip = [
         "tìm kiếm sản phẩm", "tim kiem san pham",
         "gợi ý cho tôi", "goi y cho toi",
@@ -397,35 +404,12 @@ def _expand_search_tokens(product_type: Optional[str]) -> Optional[List[str]]:
             keyword = keyword[len(prefix):].strip()
             break
 
-    # Fix Polo vs Accessories:
-    # ONLY apply the strict Polo token filter if the user's explicit query target is a Polo shirt.
-    # If the query contains keywords like 'tất', 'vớ', 'trang trí', 'ornament', 'socks', ensure normal expansion.
-    accessories_exceptions = ["tất", "vớ", "trang trí", "ornament", "socks", "sticker", "keychain", "phụ kiện", "decor", "ornaments", "móc khóa", "moc khoa"]
-    if "polo" in keyword and not any(acc in keyword for acc in accessories_exceptions):
-        return ["polo", "pmp", "pwp", "zpbj", "55900"]
-
     import re
     words = re.findall(r"\w+", keyword)
 
-    baby_triggers = ["đồ em bé", "do em be", "onesie", "baby", "trẻ em", "tre em", "kid", "kids", "toddler", "sơ sinh", "so sinh", "em bé", "em be"]
-    has_baby_query = any(trigger in keyword for trigger in baby_triggers)
-
-    tokens = []
-    specific_pants_matched = False
-    specific_shirts_matched = False
-
+    # Match query against all PRODUCT_SEARCH_GROUPS
+    matched_groups = []
     for group in PRODUCT_SEARCH_GROUPS:
-        is_baby_group = any(t in baby_triggers for t in group["triggers"])
-        if has_baby_query and not is_baby_group:
-            continue
-        if not has_baby_query and is_baby_group:
-            continue
-
-        if group.get("is_generic_pants") and specific_pants_matched:
-            continue
-        if group.get("is_generic_shirts") and specific_shirts_matched:
-            continue
-
         matched = False
         for trigger in group["triggers"]:
             if " " in trigger:
@@ -437,28 +421,48 @@ def _expand_search_tokens(product_type: Optional[str]) -> Optional[List[str]]:
                     matched = True
                     break
         if matched:
-            tokens.extend(group["tokens"])
-            if group.get("is_specific_pants"):
-                specific_pants_matched = True
-            if group.get("is_specific_shirts"):
-                specific_shirts_matched = True
+            matched_groups.append(group)
 
-    if tokens:
-        # Loại bỏ trùng lặp và giữ nguyên thứ tự
-        seen = set()
-        unique_tokens = [x for x in tokens if not (x in seen or seen.add(x))]
+    # If no groups matched, return keyword as-is
+    if not matched_groups:
+        return [keyword]
 
-        # Fix T-Shirt vs Tank Top bleeding:
-        # If the query is explicitly for T-Shirts, completely blacklist and strip any 'tank top' or 'ba lỗ' tokens.
-        tshirt_keywords = ["tshirt", "t-shirt", "áo thun", "ao thun", "áo phông", "ao phong", "t shirts"]
-        if any(tk.lower() in keyword.lower() for tk in tshirt_keywords):
-            unique_tokens = [
-                t for t in unique_tokens
-                if "tank" not in t.lower() and "ba lỗ" not in t.lower() and "ba lo" not in t.lower()
-            ]
+    # Sort matched groups by priority (lower number = higher priority)
+    matched_groups.sort(key=lambda g: g["priority"])
 
-        return unique_tokens
-    return [keyword]
+    # Get highest-priority group
+    highest_priority_group = matched_groups[0]
+
+    # Collect tokens from ALL matched groups
+    tokens = []
+    for group in matched_groups:
+        tokens.extend(group["tokens"])
+
+    # Apply exclusion blacklist from highest-priority group
+    blacklist = highest_priority_group.get("exclusion_blacklist", [])
+    blacklist_lower = [b.lower() for b in blacklist]
+
+    filtered_tokens = []
+    for token in tokens:
+        token_lower = token.lower()
+        # Check if token contains any blacklisted term
+        should_exclude = False
+        for blacklisted in blacklist_lower:
+            if blacklisted in token_lower:
+                should_exclude = True
+                break
+        if not should_exclude:
+            filtered_tokens.append(token)
+
+    # Remove duplicates while preserving order
+    seen = set()
+    unique_tokens = []
+    for token in filtered_tokens:
+        if token not in seen:
+            seen.add(token)
+            unique_tokens.append(token)
+
+    return unique_tokens
 
 
 def _diversify_results(results: List[Dict[str, Any]], limit: int = 10) -> List[Dict[str, Any]]:
