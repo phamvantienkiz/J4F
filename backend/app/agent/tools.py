@@ -115,112 +115,257 @@ def mask_pii(text: str) -> str:
     return text
 
 PRODUCT_SEARCH_GROUPS = [
+    # === PRIORITY 1: SPECIFIC PRODUCT TYPES ===
     {
-        "triggers": ["accessories", "phụ kiện", "phu kien"],
-        "tokens": ["classic cap", "bucket hat", "keychain", "sticker", "tote bag", "socks", "cap", "hat", "apron", "mouse mat", "mouse pad", "accessories"],
+        "category": "T-Shirts",
+        "priority": 1,
+        "triggers": [
+            "t-shirt", "t-shirts", "tshirt", "tshirts", "áo thun", "ao thun", "áo phông", "ao phong",
+            "tee", "tees", "hawaii shirt", "hawaiian shirt", "jersey shirt", "baseball jersey"
+        ],
+        "tokens": [
+            "t-shirt", "t-shirts", "tshirt", "tshirts", "tee", "tees",
+            "hawaii shirt", "jersey shirt", "baseball jersey", "football jersey", "soccer jersey",
+            "gildan", "bella", "comfort colors", "canvas 3001"
+        ],
+        "exclusion_blacklist": [
+            "tank top", "muscle tank", "racerback tank", "ba lỗ",
+            "hoodie", "zip hoodie", "áo mũ",
+            "sweatshirt", "crewneck", "sweater", "áo nỉ",
+            "polo", "polo shirt", "áo polo", "pmp", "pwp", "zpbj"
+        ]
     },
     {
-        "triggers": ["t-shirts", "t-shirt", "áo thun", "ao thun", "gildan", "bella", "canvas 3001", "colors 1717"],
-        "tokens": ["t-shirt", "baseball shirt", "hawaii shirt", "jersey shirt", "raglan shirt", "ringer t-shirt", "boxy tee", "baby tee", "crop tee", "triblend t-shirt", "v-neck", "t-shirts", "gildan", "bella", "comfort colors"],
-        "is_specific_shirts": True,
+        "category": "Mugs",
+        "priority": 1,
+        "triggers": [
+            "mug", "mugs", "cốc", "coc", "ly", "ly sứ", "ly su", "tách", "tach",
+            "ceramic mug", "accent mug", "magic mug", "3d mug", "latte mug"
+        ],
+        "tokens": [
+            "mug", "mugs", "ceramic mug", "accent mug", "magic mug", "3d mug", "latte mug",
+            "clear glass mug", "enamel camping mug", "glitter mug"
+        ],
+        "exclusion_blacklist": [
+            "tumbler", "bottle", "stainless steel bottle",
+            "cốc giữ nhiệt", "bình giữ nhiệt"
+        ]
     },
     {
-        "triggers": ["mugs", "mug", "cốc", "coc", "ly"],
-        "tokens": ["mug", "beer mug", "camping mug", "glitter mug", "latte mug", "magic mug", "mugs"],
+        "category": "Tank Tops",
+        "priority": 1,
+        "triggers": [
+            "tank top", "tank tops", "ba lỗ", "áo ba lỗ", "ao ba lo",
+            "muscle tank", "racerback tank", "cropped tank"
+        ],
+        "tokens": [
+            "tank top", "tank tops", "ba lỗ", "áo ba lỗ",
+            "muscle tank", "racerback tank", "cropped tank"
+        ],
+        "exclusion_blacklist": [
+            "t-shirt", "t-shirts", "tshirt", "áo thun", "tee", "tees",
+            "hoodie", "zip hoodie", "áo mũ",
+            "sweatshirt", "crewneck", "áo nỉ"
+        ]
     },
     {
-        "triggers": ["tank tops", "ba lỗ", "ba lo", "tank"],
-        "tokens": ["tank top", "muscle tank", "racerback tank", "lady's tank", "tank tops"],
-        "is_specific_shirts": True,
+        "category": "Hoodies",
+        "priority": 1,
+        "triggers": [
+            "hoodie", "hoodies", "áo mũ", "ao mu", "áo nỉ có mũ", "ao ni co mu",
+            "zip hoodie", "cropped hoodie", "pullover hoodie"
+        ],
+        "tokens": [
+            "hoodie", "hoodies", "áo mũ", "áo nỉ có mũ",
+            "zip hoodie", "cropped hoodie", "pullover hoodie"
+        ],
+        "exclusion_blacklist": [
+            "t-shirt", "t-shirts", "tshirt", "áo thun", "tee",
+            "tank top", "ba lỗ", "áo ba lỗ",
+            "sweatshirt", "crewneck", "áo nỉ"
+        ]
     },
     {
-        "triggers": ["hoodies", "hoodie", "áo mũ", "ao mu"],
-        "tokens": ["hoodie", "zip hoodie", "kid hoodie", "hoodies"],
-        "is_specific_shirts": True,
+        "category": "Sweatshirts",
+        "priority": 1,
+        "triggers": [
+            "sweatshirt", "sweatshirts", "áo nỉ", "ao ni", "crewneck", "sweater",
+            "ugly sweater", "pullover"
+        ],
+        "tokens": [
+            "sweatshirt", "sweatshirts", "áo nỉ", "crewneck", "sweater",
+            "ugly sweater", "pullover"
+        ],
+        "exclusion_blacklist": [
+            "t-shirt", "t-shirts", "tshirt", "áo thun", "tee",
+            "tank top", "ba lỗ", "áo ba lỗ",
+            "hoodie", "zip hoodie", "áo mũ", "áo nỉ có mũ"
+        ]
     },
     {
-        "triggers": ["sweatshirts", "sweatshirt", "áo nỉ", "ao ni"],
-        "tokens": ["sweatshirt", "crewneck", "sweater", "ugly sweater", "sweatshirts"],
-        "is_specific_shirts": True,
+        "category": "Blankets",
+        "priority": 1,
+        "triggers": [
+            "blanket", "blankets", "chăn", "chan", "mền", "men",
+            "fleece blanket", "sherpa blanket", "minky blanket"
+        ],
+        "tokens": [
+            "blanket", "blankets", "chăn", "mền",
+            "fleece blanket", "sherpa blanket", "minky blanket"
+        ],
+        "exclusion_blacklist": [
+            "flag", "house flag", "garden flag",
+            "doormat", "thảm chùi chân"
+        ]
     },
     {
-        "triggers": ["ornaments & gifts", "ornament", "trang trí", "trang tri", "quà tặng", "qua tang", "gift"],
-        "tokens": ["ornament", "block", "plaque", "keychain", "suncatcher", "accessories"],
+        "category": "Polo Shirts",
+        "priority": 1,
+        "triggers": [
+            "polo", "polo shirt", "polo shirts", "áo polo", "ao polo",
+            "bowling jersey", "pmp", "pwp", "zpbj"
+        ],
+        "tokens": [
+            "polo", "polo shirt", "polo shirts", "áo polo",
+            "bowling jersey", "pmp", "pwp", "zpbj"
+        ],
+        "exclusion_blacklist": [
+            "t-shirt", "t-shirts", "tshirt", "áo thun", "tee",
+            "tank top", "ba lỗ", "áo ba lỗ",
+            "hoodie", "sweatshirt", "crewneck"
+        ]
+    },
+
+    # === PRIORITY 2: DEMOGRAPHIC CATEGORIES ===
+    {
+        "category": "Baby & Kids",
+        "priority": 2,
+        "triggers": [
+            "baby", "kids", "kid", "toddler", "youth", "trẻ em", "tre em", "em bé", "em be",
+            "onesie", "sơ sinh", "so sinh", "bé gái", "bé trai"
+        ],
+        "tokens": [
+            "baby", "kids", "kid", "toddler", "youth", "trẻ em", "em bé",
+            "onesie", "sơ sinh", "bé gái", "bé trai",
+            "kid t-shirt", "kid hoodie", "baby tee"
+        ],
+        "exclusion_blacklist": [
+            "polo", "polo shirt", "áo polo",
+            "sweatpant", "quần dài", "pajama"
+        ]
+    },
+
+    # === PRIORITY 3: FUNCTIONAL CATEGORIES ===
+    {
+        "category": "Bottoms & Shorts",
+        "priority": 3,
+        "triggers": [
+            "bottoms", "quần", "quan", "pants", "shorts", "quần short", "quần đùi",
+            "basketball shorts", "hawaiian shorts", "sweatpant", "leggings"
+        ],
+        "tokens": [
+            "bottoms", "quần", "pants", "shorts", "quần short", "quần đùi",
+            "basketball shorts", "hawaiian shorts", "sweatpant", "leggings"
+        ],
+        "exclusion_blacklist": [
+            "t-shirt", "áo thun", "hoodie", "áo mũ",
+            "pajama", "pajamas", "đồ ngủ"
+        ]
     },
     {
-        "triggers": ["home decor & flags", "home decor", "flags", "cờ", "co", "đồng hồ", "dong ho", "thảm", "tham"],
-        "tokens": ["house flag", "garden flag", "hand flag", "wall clock", "doormat", "tapestry", "towels"],
+        "category": "Pajamas & Sleepwear",
+        "priority": 3,
+        "triggers": [
+            "pajama", "pajamas", "sleepwear", "đồ ngủ", "do ngu",
+            "satin pajama", "silk pajama", "pajama set"
+        ],
+        "tokens": [
+            "pajama", "pajamas", "sleepwear", "đồ ngủ",
+            "satin pajama", "silk pajama", "pajama set"
+        ],
+        "exclusion_blacklist": [
+            "shorts", "basketball shorts", "hawaiian shorts",
+            "t-shirt", "áo thun", "jersey", "đồ thể thao"
+        ]
     },
     {
-        "triggers": ["sportswear", "thể thao", "the thao"],
-        "tokens": ["jersey", "football jersey", "soccer jersey", "sports bra", "basketball shorts"],
+        "category": "Sportswear",
+        "priority": 3,
+        "triggers": [
+            "sportswear", "thể thao", "the thao", "đồ thể thao", "do the thao",
+            "football jersey", "soccer jersey", "sports bra", "leggings", "activewear"
+        ],
+        "tokens": [
+            "sportswear", "thể thao", "đồ thể thao",
+            "football jersey", "soccer jersey", "sports bra", "leggings", "activewear"
+        ],
+        "exclusion_blacklist": [
+            "polo", "polo shirt", "áo polo", "pmp", "pwp",
+            "t-shirt", "áo thun", "tee"
+        ]
+    },
+
+    # === PRIORITY 4: DECOR CATEGORIES ===
+    {
+        "category": "Ornaments & Gifts",
+        "priority": 4,
+        "triggers": [
+            "ornament", "ornaments", "trang trí", "trang tri", "quà tặng", "qua tang", "gift",
+            "acrylic ornament", "ceramic ornament", "acrylic block", "plaque"
+        ],
+        "tokens": [
+            "ornament", "ornaments", "trang trí", "quà tặng",
+            "acrylic ornament", "ceramic ornament", "acrylic block", "plaque"
+        ],
+        "exclusion_blacklist": [
+            "flag", "house flag", "garden flag",
+            "doormat", "thảm chùi chân"
+        ]
     },
     {
-        "triggers": ["blankets", "blanket", "chăn", "chan"],
-        "tokens": ["fleece blanket", "minky blanket", "sherpa blanket", "blanket"],
+        "category": "Home Decor & Flags",
+        "priority": 4,
+        "triggers": [
+            "home decor", "flags", "cờ", "garden flag", "house flag",
+            "wood sign", "doormat", "thảm chùi chân", "đồng hồ", "dong ho"
+        ],
+        "tokens": [
+            "home decor", "flags", "cờ", "garden flag", "house flag",
+            "wood sign", "doormat", "thảm chùi chân", "đồng hồ"
+        ],
+        "exclusion_blacklist": [
+            "ornament", "acrylic ornament", "ceramic ornament",
+            "blanket", "chăn"
+        ]
     },
+
+    # === PRIORITY 5: CATCH-ALL ===
     {
-        "triggers": ["quần dài", "quan dai", "long pants", "pajama", "pajamas", "sweatpant", "leggings"],
-        "tokens": ["long pants", "pajamas", "sweatpant", "leggings"],
-        "is_specific_pants": True,
-    },
-    {
-        "triggers": ["quần short", "quan short", "quần đùi", "quan dui", "shorts", "basketball shorts"],
-        "tokens": ["shorts", "basketball shorts"],
-        "is_specific_pants": True,
-    },
-    {
-        "triggers": ["quần lót", "quan lot", "quần sịp", "quan sip", "boxer briefs", "boxer"],
-        "tokens": ["boxer briefs"],
-        "is_specific_pants": True,
-    },
-    {
-        "triggers": ["bottoms", "quần", "quan"],
-        "tokens": ["long pants", "pajamas", "sweatpant", "leggings", "shorts"],
-        "is_generic_pants": True,
-    },
-    {
-        "triggers": ["tranh", "canvas", "poster"],
-        "tokens": ["canvas", "poster", "print"],
-    },
-    {
-        "triggers": ["gối", "goi", "pillow", "cushion"],
-        "tokens": ["pillow", "cushion", "cover"],
-    },
-    {
-        "triggers": ["kỷ niệm", "ky niem", "plaque", "block", "đèn", "den"],
-        "tokens": ["plaque", "block", "acrylic", "night light"],
-    },
-    {
-        "triggers": ["móc khóa", "moc khoa", "keychain"],
-        "tokens": ["keychain"],
-    },
-    {
-        "triggers": ["mũ", "mu", "nón", "non", "cap", "hat", "hats", "caps", "bucket hat", "baseball cap"],
-        "tokens": ["cap", "bucket hat", "hat", "hats", "caps", "snapback"],
-    },
-    {
-        "triggers": ["tất", "tat", "vớ", "vo", "socks", "sock"],
-        "tokens": ["socks", "sock"],
-    },
-    {
-        "triggers": ["giày", "giay", "shoes", "shoe", "sneaker", "sneakers"],
-        "tokens": ["shoes", "shoe", "sneaker", "sneakers"],
-    },
-    {
-        "triggers": ["cà vạt", "ca vat", "tie", "ties"],
-        "tokens": ["tie", "ties"],
-    },
-    {
-        "triggers": ["shirt", "tee", "áo", "ao"],
-        "tokens": ["shirt", "t-shirt", "tee", "hoodie", "sweatshirt", "tank", "apparel"],
-        "is_generic_shirts": True,
-    },
-    {
-        "triggers": ["đồ em bé", "do em be", "onesie", "baby", "trẻ em", "tre em", "kid", "kids", "toddler"],
-        "tokens": ["onesie", "baby's onesie", "toddler's t-shirt", "kid's t-shirt", "baby", "kid", "kids", "onesies", "toddler"],
-        "is_specific_shirts": True,
-    },
+        "category": "Accessories",
+        "priority": 5,
+        "triggers": [
+            "accessories", "phụ kiện", "phu kien", "tất", "vớ", "socks",
+            "sticker", "keychain", "canvas", "poster", "tumbler", "bottle",
+            "doormat", "clock", "towel", "pillow", "sneaker", "shoes", "mouse pad", "suncatcher",
+            "móc khóa", "moc khoa", "giày", "giay", "nón", "non", "cap", "hat"
+        ],
+        "tokens": [
+            "accessories", "phụ kiện", "tất", "vớ", "socks",
+            "sticker", "keychain", "canvas", "poster", "tumbler", "bottle",
+            "doormat", "clock", "towel", "pillow", "sneaker", "shoes", "mouse pad", "suncatcher",
+            "móc khóa", "giày", "nón", "cap", "hat"
+        ],
+        "exclusion_blacklist": [
+            "t-shirt", "t-shirts", "tshirt", "áo thun", "tee",
+            "tank top", "ba lỗ", "áo ba lỗ",
+            "hoodie", "zip hoodie", "áo mũ",
+            "sweatshirt", "crewneck", "áo nỉ",
+            "polo", "polo shirt", "áo polo",
+            "shorts", "pants", "quần",
+            "pajama", "pajamas", "đồ ngủ",
+            "blanket", "chăn"
+        ]
+    }
 ]
 ALL_PRODUCT_KEYWORDS = {"", "all", "tất cả", "tat ca"}
 SEARCH_PRODUCT_CANDIDATE_LIMIT = 12
@@ -306,9 +451,11 @@ def _expand_search_tokens(product_type: Optional[str]) -> Optional[List[str]]:
         # Fix T-Shirt vs Tank Top bleeding:
         # If the query is explicitly for T-Shirts, completely blacklist and strip any 'tank top' or 'ba lỗ' tokens.
         tshirt_keywords = ["tshirt", "t-shirt", "áo thun", "ao thun", "áo phông", "ao phong", "t shirts"]
-        if any(tk in keyword for tk in tshirt_keywords):
-            blacklist_tank_tokens = {"tank top", "tank tops", "muscle tank", "racerback tank", "lady's tank", "ba lỗ", "ba lo"}
-            unique_tokens = [t for t in unique_tokens if t not in blacklist_tank_tokens]
+        if any(tk.lower() in keyword.lower() for tk in tshirt_keywords):
+            unique_tokens = [
+                t for t in unique_tokens
+                if "tank" not in t.lower() and "ba lỗ" not in t.lower() and "ba lo" not in t.lower()
+            ]
 
         return unique_tokens
     return [keyword]
