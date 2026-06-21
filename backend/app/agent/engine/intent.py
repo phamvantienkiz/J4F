@@ -17,12 +17,20 @@ COUNTRY_TO_MARKET = {
 
 
 CATEGORY_MAP = {
-    "T-Shirts": ["tshirt", "t-shirt", "áo thun", "ao thun", "áo phông", "ao phong", "áo cộc", "ao coc", "t shirts"],
-    "Hoodies": ["hoodie", "hoodies", "áo nỉ có mũ", "ao ni co mu", "áo mũ", "áo hoodie"],
-    "Mugs": ["mug", "mugs", "cốc", "coc", "ly sứ", "ly su", "ly"],
-    "Sweatshirts": ["sweatshirt", "sweatshirts", "sweater", "áo nỉ", "ao ni", "áo nỉ không mũ"],
-    "Tank Tops": ["tank top", "tank tops", "ba lỗ", "áo ba lỗ", "ao ba lo"],
-    "Accessories": ["accessories", "phụ kiện", "phu kien", "đồ dùng", "tất", "vớ", "socks", "phụ kiện trang trí", "ornament", "sticker", "keychain", "trang trí", "trang tri", "ornaments", "stickers", "keychains", "móc khóa", "moc khoa"]
+    "Accessories": ["accessories", "phụ kiện", "phu kien", "tất", "vớ", "socks", "sticker", "keychain", "ornament", "móc khóa", "moc khoa", "trang trí", "trang tri", "canvas", "poster", "tumbler", "bottle", "doormat", "clock", "towel", "pillow", "sneaker", "shoes", "mouse pad", "suncatcher"],
+    "T-Shirts": ["tshirt", "t-shirt", "tshirts", "t-shirts", "áo thun", "ao thun", "áo phông", "ao phong", "tee", "tees", "hawaii shirt", "jersey shirt"],
+    "Mugs": ["mug", "mugs", "cốc", "coc", "ly", "ly sứ", "ly su", "tách", "tach", "ceramic mug", "latte mug"],
+    "Tank Tops": ["tank top", "tank tops", "ba lỗ", "áo ba lỗ", "ao ba lo", "muscle tank", "racerback tank"],
+    "Hoodies": ["hoodie", "hoodies", "áo mũ", "ao mu", "áo nỉ có mũ", "ao ni co mu", "zip hoodie"],
+    "Sweatshirts": ["sweatshirt", "sweatshirts", "sweater", "áo nỉ", "ao ni", "crewneck", "ugly sweater"],
+    "Ornaments & Gifts": ["ornament", "ornaments", "trang trí", "quà tặng", "gift", "acrylic ornament", "acrylic block", "plaque"],
+    "Home Decor & Flags": ["home decor", "flags", "cờ", "garden flag", "house flag", "wood sign", "doormat", "đồng hồ", "thảm"],
+    "Sportswear": ["sportswear", "thể thao", "the thao", "football jersey", "soccer jersey", "sports bra", "leggings"],
+    "Blankets": ["blanket", "blankets", "chăn", "chan", "fleece blanket", "sherpa blanket", "minky blanket"],
+    "Bottoms & Shorts": ["bottoms", "quần", "quan", "pants", "shorts", "basketball shorts", "hawaiian shorts", "sweatpant", "leggings"],
+    "Baby & Kids": ["baby", "kids", "kid", "toddler", "youth", "trẻ em", "tre em", "em bé", "em be", "onesie", "sơ sinh"],
+    "Pajamas & Sleepwear": ["pajama", "pajamas", "sleepwear", "đồ ngủ", "do ngu", "satin pajama"],
+    "Polo Shirts": ["polo", "polo shirt", "polo shirts", "áo polo", "ao polo", "bowling jersey", "pmp", "pwp", "zpbj"]
 }
 
 _cached_categories = None
