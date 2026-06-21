@@ -2,6 +2,7 @@ from sqlmodel import Session, select
 import app.database as db
 from app.models.catalog import Product, ProductVariant, ShippingZone, ShippingFee
 from app.services.burgerprints import BurgerPrintsClient
+from app.services.catalog_search import fallback_product_ids, hybrid_search_products, ranked_product_id, ranked_product_score
 from typing import List, Dict, Any, Optional
 import math
 import logging
@@ -9,6 +10,76 @@ import re
 import datetime
 
 logger = logging.getLogger(__name__)
+
+SHIPPING_API_DATA_ERROR = "[ERROR: Missing Shipping API Data]"
+
+
+def _shipping_fees_for_partner(session: Session, country_code: str, partner_name: Optional[str] = None) -> List[ShippingFee]:
+    zone = session.exec(select(ShippingZone).where(ShippingZone.country_code == country_code)).first()
+    if not zone:
+        return []
+
+    if partner_name:
+        partner_fees = session.exec(
+            select(ShippingFee).where(
+                ShippingFee.zone_id == zone.id,
+                ShippingFee.partner_name == partner_name,
+            )
+        ).all()
+        if partner_fees:
+            return partner_fees
+
+    return session.exec(
+        select(ShippingFee).where(
+            ShippingFee.zone_id == zone.id,
+            ShippingFee.partner_name == None,
+        )
+    ).all()
+
+
+def _carrier_options_from_fees(fees: List[ShippingFee], quantity: int = 1) -> List[Dict[str, Any]]:
+    options = []
+    for fee in fees:
+        first_fee = fee.first_item_fee or 0.0
+        additional_fee = fee.additional_item_fee or 0.0
+        total_fee = first_fee + max(quantity - 1, 0) * additional_fee
+        options.append({
+            "carrier": fee.carrier,
+            "fee": round(total_fee, 2),
+            "sla": fee.delivery_time or SHIPPING_API_DATA_ERROR
+        })
+    options.sort(key=lambda option: option["fee"])
+    return options
+
+
+def _optimized_shipping_result(
+    fees: List[ShippingFee],
+    base_cost_value: float,
+    tax_fee: float,
+    quantity: int = 1
+) -> tuple[float, str, str, bool, List[Dict[str, Any]]]:
+    available_carriers = _carrier_options_from_fees(fees, quantity)
+    if not available_carriers:
+        return 0.0, SHIPPING_API_DATA_ERROR, SHIPPING_API_DATA_ERROR, True, []
+
+    best = min(available_carriers, key=lambda option: base_cost_value + option["fee"] + tax_fee)
+    api_sync_required = any(option["sla"] == SHIPPING_API_DATA_ERROR for option in available_carriers)
+    return best["fee"], best["carrier"], best["sla"], api_sync_required, available_carriers
+
+
+def _shipping_days(delivery_time: str) -> Optional[int]:
+    if delivery_time == SHIPPING_API_DATA_ERROR:
+        return None
+    try:
+        days_parts = delivery_time.replace("business", "").replace("days", "").strip().split("-")
+        if len(days_parts) >= 2:
+            return int(days_parts[1].strip())
+        if len(days_parts) == 1:
+            return int(days_parts[0].strip())
+    except Exception:
+        return None
+    return None
+
 
 def get_tax_rate(country_code: str) -> float:
     """
@@ -22,6 +93,12 @@ def get_tax_rate(country_code: str) -> float:
         return 0.08
     elif c in ["DE", "FR", "GB", "EU"]:
         return 0.19
+    elif c == "AU":
+        return 0.10
+    elif c == "NZ":
+        return 0.15
+    elif c == "ZA":
+        return 0.15
     return 0.0
 
 def mask_pii(text: str) -> str:
@@ -36,6 +113,206 @@ def mask_pii(text: str) -> str:
     text = re.sub(r'\b[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Z|a-z]{2,}\b',
                   lambda m: m.group(0)[0] + "***@" + m.group(0).split('@')[1], text)
     return text
+
+PRODUCT_SEARCH_GROUPS = [
+    {
+        "triggers": ["accessories", "phụ kiện", "phu kien"],
+        "tokens": ["classic cap", "bucket hat", "keychain", "sticker", "tote bag", "socks", "cap", "hat", "apron", "mouse mat", "mouse pad", "accessories"],
+    },
+    {
+        "triggers": ["t-shirts", "t-shirt", "áo thun", "ao thun", "gildan", "bella", "canvas 3001", "colors 1717"],
+        "tokens": ["t-shirt", "baseball shirt", "hawaii shirt", "jersey shirt", "raglan shirt", "ringer t-shirt", "boxy tee", "baby tee", "crop tee", "triblend t-shirt", "v-neck", "t-shirts", "gildan", "bella", "comfort colors"],
+        "is_specific_shirts": True,
+    },
+    {
+        "triggers": ["mugs", "mug", "cốc", "coc", "ly"],
+        "tokens": ["mug", "beer mug", "camping mug", "glitter mug", "latte mug", "magic mug", "mugs"],
+    },
+    {
+        "triggers": ["tank tops", "ba lỗ", "ba lo", "tank"],
+        "tokens": ["tank top", "muscle tank", "racerback tank", "lady's tank", "tank tops"],
+        "is_specific_shirts": True,
+    },
+    {
+        "triggers": ["hoodies", "hoodie", "áo mũ", "ao mu"],
+        "tokens": ["hoodie", "zip hoodie", "kid hoodie", "hoodies"],
+        "is_specific_shirts": True,
+    },
+    {
+        "triggers": ["sweatshirts", "sweatshirt", "áo nỉ", "ao ni"],
+        "tokens": ["sweatshirt", "crewneck", "sweater", "ugly sweater", "sweatshirts"],
+        "is_specific_shirts": True,
+    },
+    {
+        "triggers": ["ornaments & gifts", "ornament", "trang trí", "trang tri", "quà tặng", "qua tang", "gift"],
+        "tokens": ["ornament", "block", "plaque", "keychain", "suncatcher", "accessories"],
+    },
+    {
+        "triggers": ["home decor & flags", "home decor", "flags", "cờ", "co", "đồng hồ", "dong ho", "thảm", "tham"],
+        "tokens": ["house flag", "garden flag", "hand flag", "wall clock", "doormat", "tapestry", "towels"],
+    },
+    {
+        "triggers": ["sportswear", "thể thao", "the thao"],
+        "tokens": ["jersey", "football jersey", "soccer jersey", "sports bra", "basketball shorts"],
+    },
+    {
+        "triggers": ["blankets", "blanket", "chăn", "chan"],
+        "tokens": ["fleece blanket", "minky blanket", "sherpa blanket", "blanket"],
+    },
+    {
+        "triggers": ["quần dài", "quan dai", "long pants", "pajama", "pajamas", "sweatpant", "leggings"],
+        "tokens": ["long pants", "pajamas", "sweatpant", "leggings"],
+        "is_specific_pants": True,
+    },
+    {
+        "triggers": ["quần short", "quan short", "quần đùi", "quan dui", "shorts", "basketball shorts"],
+        "tokens": ["shorts", "basketball shorts"],
+        "is_specific_pants": True,
+    },
+    {
+        "triggers": ["quần lót", "quan lot", "quần sịp", "quan sip", "boxer briefs", "boxer"],
+        "tokens": ["boxer briefs"],
+        "is_specific_pants": True,
+    },
+    {
+        "triggers": ["bottoms", "quần", "quan"],
+        "tokens": ["long pants", "pajamas", "sweatpant", "leggings", "shorts"],
+        "is_generic_pants": True,
+    },
+    {
+        "triggers": ["tranh", "canvas", "poster"],
+        "tokens": ["canvas", "poster", "print"],
+    },
+    {
+        "triggers": ["gối", "goi", "pillow", "cushion"],
+        "tokens": ["pillow", "cushion", "cover"],
+    },
+    {
+        "triggers": ["kỷ niệm", "ky niem", "plaque", "block", "đèn", "den"],
+        "tokens": ["plaque", "block", "acrylic", "night light"],
+    },
+    {
+        "triggers": ["móc khóa", "moc khoa", "keychain"],
+        "tokens": ["keychain"],
+    },
+    {
+        "triggers": ["mũ", "mu", "nón", "non", "cap", "hat", "hats", "caps", "bucket hat", "baseball cap"],
+        "tokens": ["cap", "bucket hat", "hat", "hats", "caps", "snapback"],
+    },
+    {
+        "triggers": ["tất", "tat", "vớ", "vo", "socks", "sock"],
+        "tokens": ["socks", "sock"],
+    },
+    {
+        "triggers": ["giày", "giay", "shoes", "shoe", "sneaker", "sneakers"],
+        "tokens": ["shoes", "shoe", "sneaker", "sneakers"],
+    },
+    {
+        "triggers": ["cà vạt", "ca vat", "tie", "ties"],
+        "tokens": ["tie", "ties"],
+    },
+    {
+        "triggers": ["shirt", "tee", "áo", "ao"],
+        "tokens": ["shirt", "t-shirt", "tee", "hoodie", "sweatshirt", "tank", "apparel"],
+        "is_generic_shirts": True,
+    },
+    {
+        "triggers": ["đồ em bé", "do em be", "onesie", "baby", "trẻ em", "tre em", "kid", "kids", "toddler"],
+        "tokens": ["onesie", "baby's onesie", "toddler's t-shirt", "kid's t-shirt", "baby", "kid", "kids", "onesies", "toddler"],
+        "is_specific_shirts": True,
+    },
+]
+ALL_PRODUCT_KEYWORDS = {"", "all", "tất cả", "tat ca"}
+SEARCH_PRODUCT_CANDIDATE_LIMIT = 12
+
+
+def _expand_search_tokens(product_type: Optional[str]) -> Optional[List[str]]:
+    keyword = (product_type or "").strip().lower()
+    if keyword in ALL_PRODUCT_KEYWORDS:
+        return None
+
+    # Loại bỏ các tiền tố tìm kiếm để tránh ảnh hưởng đến từ khóa chính
+    prefixes_to_strip = [
+        "tìm kiếm sản phẩm", "tim kiem san pham",
+        "gợi ý cho tôi", "goi y cho toi",
+        "tôi muốn tìm", "toi muon tim",
+        "tôi muốn mua", "toi muon mua",
+        "tìm sản phẩm", "tim san pham",
+        "tìm cho tôi", "tim cho toi",
+        "cho tôi xem", "cho toi xem",
+        "search for",
+        "tôi cần", "toi can",
+        "show me", "find me",
+        "search",
+        "show", "find",
+        "tìm", "tim"
+    ]
+    for prefix in prefixes_to_strip:
+        if keyword.startswith(prefix):
+            keyword = keyword[len(prefix):].strip()
+            break
+
+    # Fix Polo vs Accessories:
+    # ONLY apply the strict Polo token filter if the user's explicit query target is a Polo shirt.
+    # If the query contains keywords like 'tất', 'vớ', 'trang trí', 'ornament', 'socks', ensure normal expansion.
+    accessories_exceptions = ["tất", "vớ", "trang trí", "ornament", "socks", "sticker", "keychain", "phụ kiện", "decor", "ornaments", "móc khóa", "moc khoa"]
+    if "polo" in keyword and not any(acc in keyword for acc in accessories_exceptions):
+        return ["polo", "pmp", "pwp", "zpbj", "55900"]
+
+    import re
+    words = re.findall(r"\w+", keyword)
+
+    baby_triggers = ["đồ em bé", "do em be", "onesie", "baby", "trẻ em", "tre em", "kid", "kids", "toddler", "sơ sinh", "so sinh", "em bé", "em be"]
+    has_baby_query = any(trigger in keyword for trigger in baby_triggers)
+
+    tokens = []
+    specific_pants_matched = False
+    specific_shirts_matched = False
+
+    for group in PRODUCT_SEARCH_GROUPS:
+        is_baby_group = any(t in baby_triggers for t in group["triggers"])
+        if has_baby_query and not is_baby_group:
+            continue
+        if not has_baby_query and is_baby_group:
+            continue
+
+        if group.get("is_generic_pants") and specific_pants_matched:
+            continue
+        if group.get("is_generic_shirts") and specific_shirts_matched:
+            continue
+
+        matched = False
+        for trigger in group["triggers"]:
+            if " " in trigger:
+                if trigger in keyword:
+                    matched = True
+                    break
+            else:
+                if trigger in words:
+                    matched = True
+                    break
+        if matched:
+            tokens.extend(group["tokens"])
+            if group.get("is_specific_pants"):
+                specific_pants_matched = True
+            if group.get("is_specific_shirts"):
+                specific_shirts_matched = True
+
+    if tokens:
+        # Loại bỏ trùng lặp và giữ nguyên thứ tự
+        seen = set()
+        unique_tokens = [x for x in tokens if not (x in seen or seen.add(x))]
+
+        # Fix T-Shirt vs Tank Top bleeding:
+        # If the query is explicitly for T-Shirts, completely blacklist and strip any 'tank top' or 'ba lỗ' tokens.
+        tshirt_keywords = ["tshirt", "t-shirt", "áo thun", "ao thun", "áo phông", "ao phong", "t shirts"]
+        if any(tk in keyword for tk in tshirt_keywords):
+            blacklist_tank_tokens = {"tank top", "tank tops", "muscle tank", "racerback tank", "lady's tank", "ba lỗ", "ba lo"}
+            unique_tokens = [t for t in unique_tokens if t not in blacklist_tank_tokens]
+
+        return unique_tokens
+    return [keyword]
+
 
 def _diversify_results(results: List[Dict[str, Any]], limit: int = 10) -> List[Dict[str, Any]]:
     """
@@ -83,107 +360,207 @@ def search_products_tool(
     country: str,
     max_base_cost: Optional[float] = None,
     max_shipping_days: Optional[int] = None,
-    print_sides: str = "front"
+    print_sides: str = "front",
+    query: Optional[str] = None
 ) -> List[Dict[str, Any]]:
     """
     Tìm kiếm và đề xuất các biến thể phù hợp nhất.
     Có chế độ "lựa chọn thay thế gần nhất" (nearest alternative mode) nếu không có SKU nào khớp 100%.
     """
-    country_code = country.upper() if country else "US"
-    # Chuẩn hóa tên quốc gia thành mã code
-    if "MỸ" in country_code or "US" in country_code or "STATE" in country_code:
-        country_code = "US"
-    elif "ĐỨC" in country_code or "DE" in country_code or "GERMANY" in country_code:
-        country_code = "DE"
-    elif "PHÁP" in country_code or "FR" in country_code or "FRANCE" in country_code:
-        country_code = "FR"
-    elif "ANH" in country_code or "GB" in country_code or "UK" in country_code or "KINGDOM" in country_code:
-        country_code = "GB"
-    elif "VIỆT" in country_code or "VN" in country_code:
-        country_code = "VN"
+    country_code = country.strip().upper() if country else "US"
 
     with Session(db.engine) as session:
-        # Tìm các sản phẩm khớp với loại sản phẩm
-        stmt = select(Product)
-        if product_type:
-            stmt = stmt.where(Product.category.ilike(f"%{product_type}%") | Product.name.ilike(f"%{product_type}%"))
-        products = session.exec(stmt).all()
+        is_discovery_query = product_type is not None and product_type.startswith("alternative")
 
-        if not products:
-            # Nếu không tìm thấy, thử tìm kiếm rộng hơn
-            products = session.exec(select(Product)).all()
+        if is_discovery_query:
+            # 1. Dynamic Discovery: SELECT DISTINCT category FROM public.products;
+            categories = [r for r in session.exec(select(Product.category).distinct()).all() if r]
 
-        product_ids = [p.id for p in products]
+            # Xác định các category cần loại trừ
+            exclude_categories = []
+            pt_clean = product_type.lower()
+
+            target_exclude = ""
+            if "_" in product_type:
+                target_exclude = product_type.split("_", 1)[1].strip().lower()
+
+            for cat in categories:
+                cat_lower = cat.lower()
+                if target_exclude and (target_exclude in cat_lower or cat_lower in target_exclude):
+                    exclude_categories.append(cat)
+                elif not target_exclude:
+                    from app.agent.engine.intent import CATEGORY_MAP
+                    synonyms = CATEGORY_MAP.get(cat, [])
+                    if any(syn in pt_clean for syn in synonyms) or cat_lower in pt_clean:
+                        exclude_categories.append(cat)
+
+            filtered_categories = [cat for cat in categories if cat not in exclude_categories]
+            if not filtered_categories:
+                filtered_categories = categories
+
+            # 2. Lấy tối đa 2 sản phẩm đại diện cho mỗi category
+            products = []
+            for cat in filtered_categories:
+                cat_prods = session.exec(
+                    select(Product).where(Product.category == cat).limit(2)
+                ).all()
+                products.extend(cat_prods)
+
+            # Lấy thêm 2 sản phẩm đại diện từ nhóm null category
+            from sqlalchemy import or_
+            null_cat_prods = session.exec(
+                select(Product).where(or_(Product.category == None, Product.category == '')).limit(2)
+            ).all()
+            products.extend(null_cat_prods)
+
+            product_ids = [p.id for p in products]
+            score_by_product_id = {pid: 1.0 for pid in product_ids}
+        else:
+            search_tokens = _expand_search_tokens(query or product_type)
+            candidate_limit = 50 if search_tokens is None else SEARCH_PRODUCT_CANDIDATE_LIMIT
+            product_matches = hybrid_search_products(session, query or product_type or "", search_tokens, limit=candidate_limit)
+
+            product_ids = [ranked_product_id(match) for match in product_matches]
+            score_by_product_id = {
+                ranked_product_id(match): ranked_product_score(match)
+                for match in product_matches
+                if ranked_product_score(match) is not None
+            }
+
+            products = session.exec(select(Product).where(Product.id.in_(product_ids))).all() if product_ids else []
+            if not products:
+                return []
+
+            # Noun-based filtering
+            pt_clean = (query or product_type or "").strip().lower()
+            pants_query_words = ["quần", "quan", "pants", "shorts", "leggings", "pajamas", "pajama", "boxer briefs", "sweatpant", "bottoms"]
+            shirt_query_words = ["áo", "ao", "shirt", "t-shirt", "tshirt", "tee", "hoodie", "sweatshirt", "sweater", "tank", "jersey", "onesie", "ba lỗ", "ba lo", "apparel"]
+            mug_query_words = ["cốc", "coc", "mug", "mugs", "ly", "tách", "tach"]
+
+            def _contains_word(text_value: str, word: str) -> bool:
+                if not text_value or not word:
+                    return False
+                pattern = rf"(?<!\w){re.escape(word)}(?!\w)"
+                return bool(re.search(pattern, text_value, re.UNICODE))
+
+            has_pants_query = any(_contains_word(pt_clean, w) for w in pants_query_words)
+            has_shirt_query = any(_contains_word(pt_clean, w) for w in shirt_query_words)
+            has_mug_query = any(_contains_word(pt_clean, w) for w in mug_query_words)
+
+            filtered_products = []
+            if has_pants_query and not has_shirt_query and not has_mug_query:
+                for p in products:
+                    name_lower = (p.name or "").lower()
+                    cat_lower = (p.category or "").lower()
+                    is_pants = cat_lower == "bottoms" or any(w in name_lower for w in ["pants", "shorts", "leggings", "pajamas", "pajama", "boxer briefs", "sweatpant", "bottoms", "quần", "quan"])
+                    is_upper = cat_lower in ["t-shirts", "hoodies", "sweatshirts", "tank tops"] or any(w in name_lower for w in ["tank top", "t-shirt", "tshirt", "hoodie", "sweatshirt", "sweater", "onesie"])
+                    if is_pants and not is_upper:
+                        # Xác định các tiểu loại quần trong câu query
+                        is_long_pants_query = any(_contains_word(pt_clean, w) for w in ["dài", "dai", "pajama", "pajamas", "sweatpant", "sweatpants", "leggings", "legging", "long"])
+                        is_shorts_query = any(_contains_word(pt_clean, w) for w in ["short", "shorts", "đùi", "dui"])
+                        is_boxer_query = any(_contains_word(pt_clean, w) for w in ["lót", "lot", "sịp", "sip", "boxer", "boxers"])
+
+                        name_has_shorts = any(w in name_lower for w in ["shorts", "short"])
+                        name_has_boxer = any(w in name_lower for w in ["boxer", "briefs", "underpants"])
+                        name_has_long = any(w in name_lower for w in ["long pants", "pajamas", "pajama", "sweatpant", "leggings", "legging", "long-sleeve"])
+
+                        if is_long_pants_query:
+                            if name_has_shorts or name_has_boxer:
+                                continue
+                            # Lọc chi tiết hơn cho quần dài cụ thể
+                            has_pajama_word = any(_contains_word(pt_clean, w) for w in ["pajama", "pajamas"])
+                            has_leggings_word = any(_contains_word(pt_clean, w) for w in ["leggings", "legging"])
+                            has_sweatpant_word = any(_contains_word(pt_clean, w) for w in ["sweatpant", "sweatpants"])
+
+                            name_has_pajama = any(w in name_lower for w in ["pajama", "pajamas"])
+                            name_has_leggings = any(w in name_lower for w in ["leggings", "legging"])
+                            name_has_sweatpant = any(w in name_lower for w in ["sweatpant", "sweatpants"])
+
+                            if has_pajama_word and not name_has_pajama:
+                                continue
+                            if has_leggings_word and not name_has_leggings:
+                                continue
+                            if has_sweatpant_word and not name_has_sweatpant:
+                                continue
+                        elif is_shorts_query:
+                            if name_has_long or name_has_boxer:
+                                continue
+                        elif is_boxer_query:
+                            if name_has_long or name_has_shorts:
+                                continue
+                        else:
+                            if name_has_boxer:
+                                continue
+
+                        filtered_products.append(p)
+                products = filtered_products
+            elif has_shirt_query and not has_pants_query and not has_mug_query:
+                for p in products:
+                    name_lower = (p.name or "").lower()
+                    cat_lower = (p.category or "").lower()
+                    is_shirt = cat_lower in ["t-shirts", "hoodies", "sweatshirts", "tank tops"] or any(w in name_lower for w in ["tank top", "jersey", "t-shirt", "tshirt", "tee", "hoodie", "sweatshirt", "sweater", "shirt", "onesie", "áo", "ao", "ba lỗ", "ba lo", "apparel"])
+                    is_bottom = cat_lower == "bottoms" or any(w in name_lower for w in ["pants", "shorts", "leggings", "pajamas", "pajama", "boxer briefs", "sweatpant", "bottoms"])
+                    if is_shirt and not is_bottom:
+                        filtered_products.append(p)
+                products = filtered_products
+            elif has_mug_query and not has_pants_query and not has_shirt_query:
+                for p in products:
+                    name_lower = (p.name or "").lower()
+                    cat_lower = (p.category or "").lower()
+                    is_mug = cat_lower == "mugs" or any(w in name_lower for w in ["mug", "mugs", "cốc", "coc", "ly", "tách", "tach"])
+                    if is_mug:
+                        filtered_products.append(p)
+                products = filtered_products
+
+            from app.services.catalog_search import filter_products_by_gender_and_age
+            products = filter_products_by_gender_and_age(query or product_type, products)
+
+            if not products:
+                return []
+
+            product_order = {product_id: index for index, product_id in enumerate(product_ids)}
+            products.sort(key=lambda product: product_order.get(product.id, len(product_order)))
+            product_ids = [p.id for p in products]
 
         # Lấy tất cả các variant của các sản phẩm này
         variants = session.exec(select(ProductVariant).where(ProductVariant.product_id.in_(product_ids))).all()
 
-        # Lọc các variant phù hợp với thị trường đích (EU) nếu country_code thuộc EU
         is_eu_market = country_code in ["DE", "FR", "EU"]
+        is_au_nz_market = country_code in ["AU", "NZ"]
+        is_za_market = country_code == "ZA"
         if is_eu_market:
             variants = [v for v in variants if v.location_name == "EU" or (v.shipping_cost_ww is not None and v.shipping_cost_ww > 0)]
-
-        # Lấy thông tin vận chuyển cho quốc gia này
-        zone = session.exec(select(ShippingZone).where(ShippingZone.country_code == country_code)).first()
-
-        fees = []
-        if zone:
-            fees = session.exec(select(ShippingFee).where(ShippingFee.zone_id == zone.id)).all()
-
-        # Chọn phương thức vận chuyển tiêu chuẩn làm mặc định
-        std_fee = None
-        for fee in fees:
-            if "standard" in fee.carrier.lower() or "giao hàng nhanh" in fee.carrier.lower():
-                std_fee = fee
-                break
-        if not std_fee and fees:
-            std_fee = fees[0]
+        elif is_au_nz_market:
+            local_variants = [v for v in variants if (v.location_name or "").upper() in ["AU", "NZ", "AU/NZ", "AU_NZ", "SOUTHERN HEMISPHERE"]]
+            variants = local_variants or [v for v in variants if v.shipping_cost_ww is not None and v.shipping_cost_ww > 0]
+        elif is_za_market:
+            variants = [v for v in variants if (v.location_name or "").upper() in ["ZA", "SOUTH AFRICA", "AFRICA"] or (v.shipping_cost_ww is not None and v.shipping_cost_ww > 0)]
 
         all_results = []
         matched_results = []
+        shipping_fee_cache = {}
 
         for var in variants:
-            # Phí ship từ variant hoặc từ zone fee
-            if std_fee:
-                shipping_cost = std_fee.first_item_fee
-                shipping_adding = std_fee.additional_item_fee
-                carrier_name = std_fee.carrier
-                del_time = std_fee.delivery_time or "3-5 business days"
-            else:
-                if country_code == "US":
-                    shipping_cost = var.shipping_cost_us
-                    shipping_adding = var.shipping_adding_us
-                    carrier_name = "Standard Shipping"
-                    del_time = "3-5 business days"
-                else:
-                    shipping_cost = var.shipping_cost_ww
-                    shipping_adding = var.shipping_adding_ww
-                    carrier_name = "Worldwide Shipping"
-                    if is_eu_market and var.location_name == "EU":
-                        del_time = "3-5 business days"
-                    else:
-                        del_time = "7-10 business days" if country_code != "US" else "3-5 business days"
-
-            # Trích xuất số ngày từ chuỗi delivery_time để so khớp
-            shipping_days = 5
-            try:
-                days_parts = del_time.replace("business", "").replace("days", "").strip().split("-")
-                if len(days_parts) >= 2:
-                    shipping_days = int(days_parts[1].strip())
-                elif len(days_parts) == 1:
-                    shipping_days = int(days_parts[0].strip())
-            except Exception:
-                pass
-
             # Tính base cost dựa vào tùy chọn in
             base_cost_value = var.base_cost
             if print_sides == "both":
-                second_cost = var.second_item_price if var.second_item_price is not None else var.clone_price
+                second_cost = var.second_item_price or 0.0
                 base_cost_value += second_cost
 
             # Tính thuế
             tax_rate = get_tax_rate(country_code)
             tax_fee = base_cost_value * tax_rate
+
+            shipping_cache_key = (country_code, var.partner_name)
+            if shipping_cache_key not in shipping_fee_cache:
+                shipping_fee_cache[shipping_cache_key] = _shipping_fees_for_partner(session, country_code, var.partner_name)
+            fees = shipping_fee_cache[shipping_cache_key]
+            shipping_cost, carrier_name, del_time, api_sync_required, available_carriers = _optimized_shipping_result(
+                fees,
+                base_cost_value,
+                tax_fee
+            )
+            shipping_days = _shipping_days(del_time)
 
             # Tính Landed Cost = Base Cost + Shipping + Tax
             landed_cost = base_cost_value + shipping_cost + tax_fee
@@ -193,6 +570,7 @@ def search_products_tool(
 
             item_data = {
                 "sku": var.sku,
+                "product_id": var.product_id,
                 "product_name": prod_name,
                 "display_name": f"{prod_name} ({var.color} / {var.size})",
                 "color": var.color,
@@ -200,18 +578,25 @@ def search_products_tool(
                 "partner_name": var.partner_name or "BurgerPrints",
                 "location_name": var.location_name or "US",
                 "base_cost": round(var.base_cost, 2),
-                "second_item_price": round(var.second_item_price, 2),
+                "second_item_price": round(var.second_item_price or 0.0, 2),
                 "shipping_fee": round(shipping_cost, 2),
                 "tax_fee": round(tax_fee, 2),
                 "tax_rate": tax_rate,
                 "landed_cost": round(landed_cost, 2),
                 "delivery_time": del_time,
                 "carrier": [carrier_name],
+                "available_carriers": available_carriers,
+                "api_sync_required": api_sync_required,
                 "mockup_url": var.mockup_url,
+                "image_url": prod.image_url if prod else None,
                 "print_sides": print_sides,
                 "filter_match": "exact",
                 "filter_excess": {}
             }
+
+            score = score_by_product_id.get(var.product_id)
+            if score is not None:
+                item_data["rrf_score"] = score
 
             all_results.append(item_data)
 
@@ -223,9 +608,13 @@ def search_products_tool(
                 is_match = False
                 excess["base_cost"] = round(base_cost_value - max_base_cost, 2)
 
-            if max_shipping_days is not None and shipping_days > max_shipping_days:
-                is_match = False
-                excess["shipping_days"] = shipping_days - max_shipping_days
+            if max_shipping_days is not None:
+                if shipping_days is None:
+                    is_match = False
+                    excess["shipping_days"] = "api_sync_required"
+                elif shipping_days > max_shipping_days:
+                    is_match = False
+                    excess["shipping_days"] = shipping_days - max_shipping_days
 
             if is_match:
                 matched_results.append(item_data)
@@ -236,13 +625,111 @@ def search_products_tool(
                 # Ghi nhận vào danh sách thay thế
                 all_results[-1] = item_data_copy
 
-        # Sắp xếp
-        matched_results.sort(key=lambda x: x["landed_cost"])
-        all_results.sort(key=lambda x: x["landed_cost"])
+        # Lọc matched_results và all_results để mỗi sản phẩm chỉ giữ lại 1 variant đại diện tốt nhất (rẻ nhất)
+        def _keep_best_variant_per_product(items: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+            best_by_product = {}
+            for item in items:
+                pid = item["product_id"]
+                cost = item["landed_cost"]
+                if pid not in best_by_product or cost < best_by_product[pid]["landed_cost"]:
+                    best_by_product[pid] = item
 
-        # Áp dụng đa dạng hóa xưởng sản xuất
-        diversified_matched = _diversify_results(matched_results, limit=10)
-        diversified_all = _diversify_results(all_results, limit=10)
+            # Trả về danh sách được sắp xếp theo thứ tự xuất hiện ban đầu của product_id trong product_ids
+            # để giữ nguyên độ khớp tìm kiếm (RRF score)
+            ordered_pids = {pid: idx for idx, pid in enumerate(product_ids)}
+            result_list = list(best_by_product.values())
+            result_list.sort(key=lambda x: ordered_pids.get(x["product_id"], len(ordered_pids)))
+            return result_list
+
+        matched_representatives = _keep_best_variant_per_product(matched_results)
+        all_representatives = _keep_best_variant_per_product(all_results)
+
+        # Áp dụng đa dạng hóa xưởng sản xuất trên các đại diện sản phẩm
+        diversified_matched = _diversify_results(matched_representatives, limit=10)
+        diversified_all = _diversify_results(all_representatives, limit=10)
+
+        # Chọn danh sách kết quả để trả về và đính kèm sister variants
+        final_results = diversified_matched if diversified_matched else diversified_all
+
+        # Thêm sister variants vào trường "variants" cho từng item trong danh sách kết quả cuối cùng
+        for item in final_results:
+            item_product_id = item.get("product_id")
+            if not item_product_id:
+                # Fallback tìm qua database
+                db_var = session.exec(select(ProductVariant).where(ProductVariant.sku == item["sku"])).first()
+                item_product_id = db_var.product_id if db_var else None
+
+            if not item_product_id:
+                item["variants"] = [item.copy()]
+                continue
+
+            # Truy vấn 100% sister variants của product_id đó từ database
+            sister_vars_db = session.exec(
+                select(ProductVariant).where(ProductVariant.product_id == item_product_id)
+            ).all()
+
+            # Lọc theo thị trường giống như ở dòng 317-323
+            if is_eu_market:
+                sister_vars_db = [v for v in sister_vars_db if v.location_name == "EU" or (v.shipping_cost_ww is not None and v.shipping_cost_ww > 0)]
+            elif is_au_nz_market:
+                local_variants = [v for v in sister_vars_db if (v.location_name or "").upper() in ["AU", "NZ", "AU/NZ", "AU_NZ", "SOUTHERN HEMISPHERE"]]
+                sister_vars_db = local_variants or [v for v in sister_vars_db if v.shipping_cost_ww is not None and v.shipping_cost_ww > 0]
+            elif is_za_market:
+                sister_vars_db = [v for v in sister_vars_db if (v.location_name or "").upper() in ["ZA", "SOUTH AFRICA", "AFRICA"] or (v.shipping_cost_ww is not None and v.shipping_cost_ww > 0)]
+
+            sister_variants = []
+            for var in sister_vars_db:
+                # Tính toán landed cost, shipping, tax cho variant này
+                base_cost_value = var.base_cost
+                if print_sides == "both":
+                    second_cost = var.second_item_price or 0.0
+                    base_cost_value += second_cost
+
+                tax_rate = get_tax_rate(country_code)
+                tax_fee = base_cost_value * tax_rate
+
+                shipping_cache_key = (country_code, var.partner_name)
+                if shipping_cache_key not in shipping_fee_cache:
+                    shipping_fee_cache[shipping_cache_key] = _shipping_fees_for_partner(session, country_code, var.partner_name)
+                fees = shipping_fee_cache[shipping_cache_key]
+                shipping_cost, carrier_name, del_time, api_sync_required, available_carriers = _optimized_shipping_result(
+                    fees,
+                    base_cost_value,
+                    tax_fee
+                )
+
+                landed_cost = base_cost_value + shipping_cost + tax_fee
+
+                sibling_data = {
+                    "sku": var.sku,
+                    "product_id": var.product_id,
+                    "product_name": item["product_name"],
+                    "display_name": f"{item['product_name']} ({var.color} / {var.size})",
+                    "color": var.color,
+                    "size": var.size,
+                    "partner_name": var.partner_name or "BurgerPrints",
+                    "location_name": var.location_name or "US",
+                    "base_cost": round(var.base_cost, 2),
+                    "second_item_price": round(var.second_item_price or 0.0, 2),
+                    "shipping_fee": round(shipping_cost, 2),
+                    "tax_fee": round(tax_fee, 2),
+                    "tax_rate": tax_rate,
+                    "landed_cost": round(landed_cost, 2),
+                    "delivery_time": del_time,
+                    "carrier": [carrier_name],
+                    "available_carriers": available_carriers,
+                    "api_sync_required": api_sync_required,
+                    "mockup_url": var.mockup_url,
+                    "image_url": item.get("image_url"),
+                    "print_sides": print_sides,
+                    "filter_match": "exact",
+                    "filter_excess": {}
+                }
+                sister_variants.append(sibling_data)
+
+            # Sắp xếp các sister variants theo landed_cost tăng dần
+            sister_variants.sort(key=lambda x: x.get("landed_cost", 0))
+            item["variants"] = sister_variants
 
         # Nếu có kết quả khớp 100%, trả về
         if diversified_matched:
@@ -254,35 +741,103 @@ def search_products_tool(
         return diversified_all
 
 
-def compare_shipping_tool(product_type: str, country: str, print_sides: str = "front") -> List[Dict[str, Any]]:
+def compare_shipping_tool(product_type: str, country: str, print_sides: str = "front", query: Optional[str] = None) -> List[Dict[str, Any]]:
     """
     So sánh phí vận chuyển và thời gian vận chuyển của các xưởng đến một quốc gia cụ thể.
     """
-    country_code = country.upper() if country else "US"
-    if "MỸ" in country_code or "US" in country_code or "STATE" in country_code:
-        country_code = "US"
-    elif "ĐỨC" in country_code or "DE" in country_code or "GERMANY" in country_code:
-        country_code = "DE"
-    elif "PHÁP" in country_code or "FR" in country_code or "FRANCE" in country_code:
-        country_code = "FR"
-    elif "ANH" in country_code or "GB" in country_code or "UK" in country_code or "KINGDOM" in country_code:
-        country_code = "GB"
-    elif "VIỆT" in country_code or "VN" in country_code:
-        country_code = "VN"
+    country_code = country.strip().upper() if country else "US"
 
     with Session(db.engine) as session:
-        # Lấy thông tin Shipping Zone và Fee
-        zone = session.exec(select(ShippingZone).where(ShippingZone.country_code == country_code)).first()
-
-        fees = []
-        if zone:
-            fees = session.exec(select(ShippingFee).where(ShippingFee.zone_id == zone.id)).all()
-
         # Lấy danh sách variants để so sánh xưởng
         stmt = select(Product)
-        if product_type:
-            stmt = stmt.where(Product.category.ilike(f"%{product_type}%") | Product.name.ilike(f"%{product_type}%"))
+        search_query = query or product_type
+        if search_query:
+            stmt = stmt.where(Product.category.ilike(f"%{search_query}%") | Product.name.ilike(f"%{search_query}%"))
         products = session.exec(stmt).all()
+
+        # Lọc danh từ và lọc giới tính/độ tuổi tương tự như trong search_products_tool
+        if search_query and products:
+            pt_clean = search_query.strip().lower()
+            pants_query_words = ["quần", "quan", "pants", "shorts", "leggings", "pajamas", "pajama", "boxer briefs", "sweatpant", "bottoms"]
+            shirt_query_words = ["áo", "ao", "shirt", "t-shirt", "tshirt", "tee", "hoodie", "sweatshirt", "sweater", "tank", "jersey", "onesie", "ba lỗ", "ba lo", "apparel"]
+            mug_query_words = ["cốc", "coc", "mug", "mugs", "ly", "tách", "tach"]
+
+            def _contains_word(text_value: str, word: str) -> bool:
+                if not text_value or not word:
+                    return False
+                pattern = rf"(?<!\w){re.escape(word)}(?!\w)"
+                return bool(re.search(pattern, text_value, re.UNICODE))
+
+            has_pants_query = any(_contains_word(pt_clean, w) for w in pants_query_words)
+            has_shirt_query = any(_contains_word(pt_clean, w) for w in shirt_query_words)
+            has_mug_query = any(_contains_word(pt_clean, w) for w in mug_query_words)
+
+            filtered_products = []
+            if has_pants_query and not has_shirt_query and not has_mug_query:
+                for p in products:
+                    name_lower = (p.name or "").lower()
+                    cat_lower = (p.category or "").lower()
+                    is_pants = cat_lower == "bottoms" or any(w in name_lower for w in ["pants", "shorts", "leggings", "pajamas", "pajama", "boxer briefs", "sweatpant", "bottoms", "quần", "quan"])
+                    is_upper = cat_lower in ["t-shirts", "hoodies", "sweatshirts", "tank tops"] or any(w in name_lower for w in ["tank top", "t-shirt", "tshirt", "hoodie", "sweatshirt", "sweater", "onesie"])
+                    if is_pants and not is_upper:
+                        is_long_pants_query = any(_contains_word(pt_clean, w) for w in ["dài", "dai", "pajama", "pajamas", "sweatpant", "sweatpants", "leggings", "legging", "long"])
+                        is_shorts_query = any(_contains_word(pt_clean, w) for w in ["short", "shorts", "đùi", "dui"])
+                        is_boxer_query = any(_contains_word(pt_clean, w) for w in ["lót", "lot", "sịp", "sip", "boxer", "boxers"])
+
+                        name_has_shorts = any(w in name_lower for w in ["shorts", "short"])
+                        name_has_boxer = any(w in name_lower for w in ["boxer", "briefs", "underpants"])
+                        name_has_long = any(w in name_lower for w in ["long pants", "pajamas", "pajama", "sweatpant", "leggings", "legging", "long-sleeve"])
+
+                        if is_long_pants_query:
+                            if name_has_shorts or name_has_boxer:
+                                continue
+                            # Lọc chi tiết hơn cho quần dài cụ thể
+                            has_pajama_word = any(_contains_word(pt_clean, w) for w in ["pajama", "pajamas"])
+                            has_leggings_word = any(_contains_word(pt_clean, w) for w in ["leggings", "legging"])
+                            has_sweatpant_word = any(_contains_word(pt_clean, w) for w in ["sweatpant", "sweatpants"])
+
+                            name_has_pajama = any(w in name_lower for w in ["pajama", "pajamas"])
+                            name_has_leggings = any(w in name_lower for w in ["leggings", "legging"])
+                            name_has_sweatpant = any(w in name_lower for w in ["sweatpant", "sweatpants"])
+
+                            if has_pajama_word and not name_has_pajama:
+                                continue
+                            if has_leggings_word and not name_has_leggings:
+                                continue
+                            if has_sweatpant_word and not name_has_sweatpant:
+                                continue
+                        elif is_shorts_query:
+                            if name_has_long or name_has_boxer:
+                                continue
+                        elif is_boxer_query:
+                            if name_has_long or name_has_shorts:
+                                continue
+                        else:
+                            if name_has_boxer:
+                                continue
+                        filtered_products.append(p)
+                products = filtered_products
+            elif has_shirt_query and not has_pants_query and not has_mug_query:
+                for p in products:
+                    name_lower = (p.name or "").lower()
+                    cat_lower = (p.category or "").lower()
+                    is_shirt = cat_lower in ["t-shirts", "hoodies", "sweatshirts", "tank tops"] or any(w in name_lower for w in ["tank top", "jersey", "t-shirt", "tshirt", "tee", "hoodie", "sweatshirt", "sweater", "shirt", "onesie", "áo", "ao", "ba lỗ", "ba lo", "apparel"])
+                    is_bottom = cat_lower == "bottoms" or any(w in name_lower for w in ["pants", "shorts", "leggings", "pajamas", "pajama", "boxer briefs", "sweatpant", "bottoms"])
+                    if is_shirt and not is_bottom:
+                        filtered_products.append(p)
+                products = filtered_products
+            elif has_mug_query and not has_pants_query and not has_shirt_query:
+                for p in products:
+                    name_lower = (p.name or "").lower()
+                    cat_lower = (p.category or "").lower()
+                    is_mug = cat_lower == "mugs" or any(w in name_lower for w in ["mug", "mugs", "cốc", "coc", "ly", "tách", "tach"])
+                    if is_mug:
+                        filtered_products.append(p)
+                products = filtered_products
+
+            # Áp dụng bộ lọc giới tính và độ tuổi
+            from app.services.catalog_search import filter_products_by_gender_and_age
+            products = filter_products_by_gender_and_age(search_query, products)
 
         product_ids = [p.id for p in products] if products else []
         variants = []
@@ -290,8 +845,15 @@ def compare_shipping_tool(product_type: str, country: str, print_sides: str = "f
             variants = session.exec(select(ProductVariant).where(ProductVariant.product_id.in_(product_ids))).all()
 
         is_eu_market = country_code in ["DE", "FR", "EU"]
+        is_au_nz_market = country_code in ["AU", "NZ"]
+        is_za_market = country_code == "ZA"
         if is_eu_market:
             variants = [v for v in variants if v.location_name == "EU" or (v.shipping_cost_ww is not None and v.shipping_cost_ww > 0)]
+        elif is_au_nz_market:
+            local_variants = [v for v in variants if (v.location_name or "").upper() in ["AU", "NZ", "AU/NZ", "AU_NZ", "SOUTHERN HEMISPHERE"]]
+            variants = local_variants or [v for v in variants if v.shipping_cost_ww is not None and v.shipping_cost_ww > 0]
+        elif is_za_market:
+            variants = [v for v in variants if (v.location_name or "").upper() in ["ZA", "SOUTH AFRICA", "AFRICA"] or (v.shipping_cost_ww is not None and v.shipping_cost_ww > 0)]
 
         # Gom nhóm theo xưởng để so sánh
         partners = {}
@@ -302,7 +864,7 @@ def compare_shipping_tool(product_type: str, country: str, print_sides: str = "f
             # Tính toán base cost thực tế dựa trên số mặt in
             base_cost_value = var.base_cost
             if print_sides == "both":
-                second_cost = var.second_item_price if var.second_item_price is not None else var.clone_price
+                second_cost = var.second_item_price or 0.0
                 base_cost_value += second_cost
 
             if partner_name not in partners:
@@ -329,56 +891,44 @@ def compare_shipping_tool(product_type: str, country: str, print_sides: str = "f
 
         compare_results = []
         for partner_name, p_info in partners.items():
-            if fees:
-                for fee in fees:
-                    shipping_fee = fee.first_item_fee
-                    second_item_price = fee.additional_item_fee
-                    carrier_name = fee.carrier
-                    del_time = fee.delivery_time or "3-5 business days"
+            tax_rate = get_tax_rate(country_code)
+            tax_fee = p_info["min_base_cost"] * tax_rate
+            fees = _shipping_fees_for_partner(session, country_code, partner_name)
+            shipping_fee, carrier_name, del_time, api_sync_required, available_carriers = _optimized_shipping_result(
+                fees,
+                p_info["min_base_cost"],
+                tax_fee
+            )
+            min_landed_cost = p_info["min_base_cost"] + shipping_fee + tax_fee
 
-                    tax_rate = get_tax_rate(country_code)
-                    min_landed_cost = p_info["min_base_cost"] + shipping_fee + (p_info["min_base_cost"] * tax_rate)
+            # Tìm variant tương ứng để lấy mockup_url và image_url
+            var_sku = p_info["sku"]
+            matching_var = next((v for v in variants if v.sku == var_sku), None)
+            prod_image_url = None
+            if matching_var:
+                prod = next((p for p in products if p.id == matching_var.product_id), None)
+                if prod:
+                    prod_image_url = prod.image_url
 
-                    compare_results.append({
-                        "partner_name": partner_name,
-                        "location_name": p_info["location_name"],
-                        "carrier": carrier_name,
-                        "base_cost": round(p_info["min_base_cost"], 2),
-                        "shipping_fee": round(shipping_fee, 2),
-                        "second_item_price": round(p_info["second_item_price"], 2) if p_info["second_item_price"] is not None else round(p_info["clone_price"], 2),
-                        "tax_fee": round(p_info["min_base_cost"] * tax_rate, 2),
-                        "landed_cost": round(min_landed_cost, 2),
-                        "delivery_time": del_time,
-                        "color": p_info["color"],
-                        "size": p_info["size"],
-                        "sku": p_info["sku"]
-                    })
-            else:
-                shipping_fee = p_info["shipping_cost_us"] if country_code == "US" else p_info["shipping_cost_ww"]
-                second_item_price = p_info["shipping_adding_us"] if country_code == "US" else p_info["shipping_adding_ww"]
-                carrier_name = "Worldwide Shipping" if country_code != "US" else "Standard Shipping"
-                if is_eu_market and p_info["location_name"] == "EU":
-                    del_time = "3-5 business days"
-                else:
-                    del_time = "7-10 business days" if country_code != "US" else "3-5 business days"
-
-                tax_rate = get_tax_rate(country_code)
-                min_landed_cost = p_info["min_base_cost"] + shipping_fee + (p_info["min_base_cost"] * tax_rate)
-
-                compare_results.append({
-                    "partner_name": partner_name,
-                    "location_name": p_info["location_name"],
-                    "carrier": carrier_name,
-                    "base_cost": round(p_info["min_base_cost"], 2),
-                    "shipping_fee": round(shipping_fee, 2),
-                    "second_item_price": round(p_info["second_item_price"], 2) if p_info["second_item_price"] is not None else round(p_info["clone_price"], 2),
-                    "tax_fee": round(p_info["min_base_cost"] * tax_rate, 2),
-                    "landed_cost": round(min_landed_cost, 2),
-                    "delivery_time": del_time,
-                    "color": p_info["color"],
-                    "size": p_info["size"],
-                    "sku": p_info["sku"]
-                })
+            compare_results.append({
+                "display_name": f"{product_type or 'Product'} ({p_info['color']} / {p_info['size']})",
+                "partner_name": partner_name,
+                "location_name": p_info["location_name"],
+                "carrier": carrier_name,
+                "base_cost": round(p_info["min_base_cost"], 2),
+                "shipping_fee": round(shipping_fee, 2),
+                "second_item_price": round(p_info["second_item_price"] or 0.0, 2),
+                "tax_fee": round(tax_fee, 2),
+                "landed_cost": round(min_landed_cost, 2),
+                "delivery_time": del_time,
+                "available_carriers": available_carriers,
+                "api_sync_required": api_sync_required,
+                "color": p_info["color"],
+                "size": p_info["size"],
+                "sku": p_info["sku"],
+                "mockup_url": matching_var.mockup_url if matching_var else None,
+                "image_url": prod_image_url
+            })
 
         # Sắp xếp theo landed cost tăng dần
         compare_results.sort(key=lambda x: x["landed_cost"])
@@ -395,17 +945,7 @@ def calculate_landed_cost_tool(
     """
     Tính toán landed cost chi tiết cho 1 SKU cụ thể và tính toán Margin / Profit nếu có giá bán.
     """
-    country_code = country.upper() if country else "US"
-    if "MỸ" in country_code or "US" in country_code or "STATE" in country_code:
-        country_code = "US"
-    elif "ĐỨC" in country_code or "DE" in country_code or "GERMANY" in country_code:
-        country_code = "DE"
-    elif "PHÁP" in country_code or "FR" in country_code or "FRANCE" in country_code:
-        country_code = "FR"
-    elif "ANH" in country_code or "GB" in country_code or "UK" in country_code or "KINGDOM" in country_code:
-        country_code = "GB"
-    elif "VIỆT" in country_code or "VN" in country_code:
-        country_code = "VN"
+    country_code = country.strip().upper() if country else "US"
 
     with Session(db.engine) as session:
         # Tìm variant bằng SKU
@@ -416,48 +956,24 @@ def calculate_landed_cost_tool(
         product = session.exec(select(Product).where(Product.id == variant.product_id)).first()
         product_name = product.name if product else "Product"
 
-        # Lấy thông tin Shipping
-        zone = session.exec(select(ShippingZone).where(ShippingZone.country_code == country_code)).first()
-
-        fees = []
-        if zone:
-            fees = session.exec(select(ShippingFee).where(ShippingFee.zone_id == zone.id)).all()
-
-        # Chọn standard shipping làm mặc định
-        std_fee = None
-        for fee in fees:
-            if "standard" in fee.carrier.lower() or "giao hàng nhanh" in fee.carrier.lower():
-                std_fee = fee
-                break
-        if not std_fee and fees:
-            std_fee = fees[0]
-
-        # Công thức tính phí ship: first_item_fee + (quantity - 1) * additional_item_fee
-        is_eu_market = country_code in ["DE", "FR", "EU"]
-        if std_fee:
-            shipping_fee = std_fee.first_item_fee + (quantity - 1) * std_fee.additional_item_fee
-            carrier_name = std_fee.carrier
-            delivery_time = std_fee.delivery_time
-        else:
-            first_cost = variant.shipping_cost_us if country_code == "US" else variant.shipping_cost_ww
-            adding_cost = variant.shipping_adding_us if country_code == "US" else variant.shipping_adding_ww
-            shipping_fee = first_cost + (quantity - 1) * adding_cost
-            carrier_name = "Worldwide Shipping" if country_code != "US" else "Standard Shipping"
-            if is_eu_market and variant.location_name == "EU":
-                delivery_time = "3-5 business days"
-            else:
-                delivery_time = "7-10 business days" if country_code != "US" else "3-5 business days"
-
         # Tính base cost dựa vào tùy chọn in
         base_cost_value = variant.base_cost
         if print_sides == "both":
-            second_cost = variant.second_item_price if variant.second_item_price is not None else variant.clone_price
+            second_cost = variant.second_item_price or 0.0
             base_cost_value += second_cost
 
         # Thuế
         tax_rate = get_tax_rate(country_code)
         total_base = base_cost_value * quantity
         tax_fee = total_base * tax_rate
+
+        fees = _shipping_fees_for_partner(session, country_code, variant.partner_name)
+        shipping_fee, carrier_name, delivery_time, api_sync_required, available_carriers = _optimized_shipping_result(
+            fees,
+            total_base,
+            tax_fee,
+            quantity
+        )
 
         # Landed cost = Total Base + Shipping + Tax
         landed_cost = total_base + shipping_fee + tax_fee
@@ -473,14 +989,16 @@ def calculate_landed_cost_tool(
             "quantity": quantity,
             "base_cost": round(variant.base_cost, 2),
             "total_base_cost": round(total_base, 2),
-            "second_item_price": round(variant.second_item_price, 2),
-            "clone_price": round(variant.clone_price, 2),
+            "second_item_price": round(variant.second_item_price or 0.0, 2),
+            "clone_price": round(variant.clone_price or 0.0, 2),
             "shipping_fee": round(shipping_fee, 2),
             "tax_fee": round(tax_fee, 2),
             "tax_rate": tax_rate,
             "landed_cost": round(landed_cost, 2),
             "delivery_time": delivery_time,
             "carrier": [carrier_name],
+            "available_carriers": available_carriers,
+            "api_sync_required": api_sync_required,
             "mockup_url": variant.mockup_url,
             "print_sides": print_sides
         }
@@ -507,30 +1025,83 @@ async def create_draft_order_tool(
     address1: str,
     city: str,
     zip_code: str,
-    print_sides: str = "front"
+    print_sides: str = "front",
+    shipping_carrier: Optional[str] = None,
+    state: Optional[str] = None,
+    email: Optional[str] = None,
+    phone: Optional[str] = None,
+    design_url_front: Optional[str] = None,
+    mockup_url_front: Optional[str] = None
 ) -> Dict[str, Any]:
     """
     Tạo đơn hàng nháp qua BurgerPrints API v2.0
+    Các trường bắt buộc: shipping_name, shipping_address1, shipping_city, shipping_state,
+    shipping_zip, shipping_country, shipping_email, shipping_phone, production_service, shipping_method, items
     """
+    from app.models.order import Order
+    import uuid
+
     client = BurgerPrintsClient()
 
-    # Dựng cấu trúc dữ liệu đơn hàng
+    # Dựng cấu trúc item với design/mockup URLs
+    item = {
+        "catalog_sku": sku,
+        "quantity": quantity,
+        "print_sides": print_sides
+    }
+    # BurgerPrints yêu cầu design_url và mockup_url cho mỗi item
+    default_design = "https://d1ud88wu9m1k4s.cloudfront.net/isp/2021/03/04/A2075_store_b7vinpbi8brtf.jpg"
+    item["design_url_front"] = design_url_front or default_design
+    item["mockup_url_front"] = mockup_url_front or default_design
+
+    reference_order_id = f"REF-{sku}-{int(datetime.datetime.now().timestamp())}"
+
+    # Dựng cấu trúc dữ liệu đơn hàng với TẤT CẢ các trường bắt buộc
     order_data = {
-        "shipping_name": full_name,
-        "shipping_address1": address1,
-        "shipping_city": city,
-        "shipping_zip": zip_code,
-        "shipping_country": country.upper(),
-        "reference_order_id": f"REF-{sku}-{int(datetime.datetime.now().timestamp())}",
-        "items": [
-            {
-                "catalog_sku": sku,
-                "quantity": quantity,
-                "print_sides": print_sides
-            }
-        ]
+        "shipping_name": full_name or "Test Customer",
+        "shipping_address1": address1 or "123 Main St",
+        "shipping_city": city or "New York",
+        "shipping_state": state or "NY",
+        "shipping_zip": zip_code or "10001",
+        "shipping_country": country.upper() if country else "US",
+        "shipping_email": email or "test@example.com",
+        "shipping_phone": phone or "0000000000",
+        "reference_order_id": reference_order_id,
+        "production_service": "standard",
+        "shipping_method": shipping_carrier or "standard",
+        "items": [item]
     }
 
     # Gọi API tạo đơn hàng
     result = await client.create_order(order_data)
+
+    # Nếu tạo thành công, lưu vào database
+    if result.get("success") and result.get("order_id"):
+        try:
+            # Tính total_amount từ landed_cost
+            calc = calculate_landed_cost_tool(sku, country, quantity, print_sides=print_sides)
+            total_amount = calc.get("landed_cost", 0.0) * quantity
+
+            # Tạo Order object
+            order = Order(
+                id=str(uuid.uuid4()),
+                burger_order_id=result["order_id"],
+                reference_order_id=reference_order_id,
+                sku=sku,
+                customer_name=full_name or "Test Customer",
+                total_amount=total_amount,
+                status="created",
+                created_at=datetime.datetime.utcnow()
+            )
+
+            # Lưu vào database
+            with Session(db.engine) as session:
+                session.add(order)
+                session.commit()
+                logger.info(f"Order {order.burger_order_id} saved to database")
+
+        except Exception as e:
+            logger.error(f"Failed to save order to database: {str(e)}")
+            # Không raise exception vì đơn hàng đã tạo thành công trên BurgerPrints
+
     return result
