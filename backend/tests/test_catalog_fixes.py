@@ -2,6 +2,7 @@ import os
 os.environ["TESTING"] = "True"
 
 import pytest
+import asyncio
 from sqlmodel import Session, SQLModel, create_engine
 from sqlalchemy.pool import StaticPool
 import app.database as database_module
@@ -66,3 +67,34 @@ def test_pure_margin_preserves_context():
     )
     assert slots.get("product_type") == "polo"
     assert slots.get("sku") == "ZPBJ-Polo-S"
+
+
+@pytest.mark.asyncio
+async def test_heuristic_flow_margin_preservation(session):
+    from app.agent.engine.heuristic import execute_heuristic_flow
+
+    # Tạo mock engine đơn giản
+    class MockEngine:
+        def __init__(self):
+            self.trend_service = None
+
+    engine = MockEngine()
+
+    # Giả lập slots khi đã tìm thấy product_type và sku trước đó
+    slots = {"product_type": "polo", "sku": "ZPBJ-Polo-S", "country": "US"}
+    message = "Tính margin với giá bán lẻ $30"
+
+    # Chạy heuristic flow
+    res = await execute_heuristic_flow(
+        engine=engine,
+        intent="calculate_margin",
+        slots=slots,
+        message=message,
+        lang="vi",
+        country_code="US",
+        history=[{"role": "user", "content": "áo polo"}, {"role": "assistant", "content": "Đây là áo polo..."}]
+    )
+
+    # Phải kế thừa đúng product_type và sku
+    assert res["metadata"]["product_type"] == "polo"
+    assert res["metadata"]["sku"] == "ZPBJ-Polo-S"
