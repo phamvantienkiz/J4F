@@ -1,5 +1,6 @@
 import { FormEvent, useEffect, useRef, useState } from "react";
-import { AgentResponse, RecommendedItem, SuggestedQuestions, checkHealth, checkReady, getSuggestions, sendChatMessage } from "./api/agent";
+import { AgentResponse, CarrierOption, RecommendedItem, SuggestedCountry, SuggestedQuestions, TokenMeta, checkHealth, checkReady, getSuggestions, sendChatMessage, getOrdersHistory, OrderHistoryItem } from "./api/agent";
+import { buildOrderStartMessage } from "./orderPayload";
 
 type ChatMessage = {
   id: string;
@@ -28,6 +29,7 @@ type OrderForm = {
   reference_order_id: string;
   design_url_front: string;
   print_sides: "front" | "both";
+  shipping_carrier: string;
 };
 
 type Language = "vi" | "en";
@@ -66,6 +68,7 @@ const copy = {
     selectProductDesc: "SKU tốt nhất được chọn sẵn để xem nhanh. Checkout sẽ dùng dữ liệu thật từ API.",
     productInspector: "Product Inspector",
     shippingInfo: "Shipping Info",
+    shippingMethod: "Phương thức vận chuyển",
     frontDesign: "Front Design",
     designUrlHint: "Dán URL hoặc chọn ảnh từ máy để preview mặt trước.",
     chooseLocalImage: "Chọn ảnh từ máy",
@@ -78,6 +81,7 @@ const copy = {
     orderHistoryEmpty: "Chưa có lịch sử đơn trong phiên này.",
     createdTitle: "Sandbox order đã tạo",
     createdDesc: "Bạn có thể tiếp tục kiểm tra SKU khác hoặc xem lại thông tin đơn trong BurgerPrints.",
+    productName: "Sản phẩm",
     supplier: "Xưởng",
     total: "Landed Cost",
     sellPrice: "Giá bán",
@@ -94,7 +98,7 @@ const copy = {
     updateFields: "Cập nhật thông tin",
     confirmCreate: "Xác nhận tạo sandbox order",
     order: "Đặt đơn",
-    skuOption: "Chọn SKU / màu / xưởng",
+    skuOption: "Chọn màu",
     color: "Màu",
     size: "Size",
     base: "Base Cost",
@@ -115,6 +119,12 @@ const copy = {
     catalogRecommendation: "Gợi ý từ Catalog",
     viewCards: "Kiểm tra thông tin rồi bấm Đặt đơn trên card này hoặc panel bên phải khi muốn tạo sandbox draft.",
     apiError: "Không gọi được API. Hãy kiểm tra backend đang chạy rồi thử gửi lại.",
+    tokenDebug: "Token Debug",
+    tokenInput: "Input",
+    tokenOutput: "Output",
+    tokenTotal: "Total",
+    tokenSessionTotal: "Tổng token phiên",
+    tokenNoData: "Chưa có lượt chat nào có token meta.",
   },
   en: {
     nav: ["Catalog", "Services", "How it works", "Help Center"],
@@ -149,6 +159,7 @@ const copy = {
     selectProductDesc: "The best SKU is preselected for review. Checkout uses real API data only.",
     productInspector: "Product Inspector",
     shippingInfo: "Shipping Info",
+    shippingMethod: "Shipping Method",
     frontDesign: "Front Design",
     designUrlHint: "Paste a URL or choose a local image to preview the front side.",
     chooseLocalImage: "Choose local image",
@@ -178,6 +189,7 @@ const copy = {
     confirmCreate: "Confirm create sandbox order",
     order: "Order",
     skuOption: "Choose SKU / color / supplier",
+    productName: "Product",
     color: "Color",
     size: "Size",
     base: "Base",
@@ -198,6 +210,12 @@ const copy = {
     catalogRecommendation: "Catalog recommendation",
     viewCards: "Review the SKU, then click Order on this card or the right panel when you want to create a sandbox draft.",
     apiError: "Could not reach the API. Check that the backend is running, then try again.",
+    tokenDebug: "Token Debug",
+    tokenInput: "Input",
+    tokenOutput: "Output",
+    tokenTotal: "Total",
+    tokenSessionTotal: "Session token total",
+    tokenNoData: "No turns with token metadata yet.",
   },
 } satisfies Record<Language, Record<string, string | string[]>>;
 
@@ -229,6 +247,7 @@ const emptyOrderForm: OrderForm = {
   reference_order_id: "",
   design_url_front: "",
   print_sides: "front",
+  shipping_carrier: "",
 };
 
 function detectLanguage(text: string): Language {
@@ -251,6 +270,16 @@ function englishSuggestions(data: SuggestedQuestions | null) {
   ];
 }
 
+function suggestedCountries(response?: AgentResponse): SuggestedCountry[] {
+  if (!response?.data?.clarification_required || response.data.missing_field !== "shipping_location") return [];
+  return response.data.custom_payload?.suggested_countries?.filter((value): value is SuggestedCountry => (
+    typeof value?.code === "string" &&
+    value.code.trim().length > 0 &&
+    typeof value.name === "string" &&
+    value.name.trim().length > 0
+  )) || [];
+}
+
 function getDynamicSuggestions(
   latestResponse: AgentResponse | undefined,
   language: Language,
@@ -268,10 +297,8 @@ function getDynamicSuggestions(
         ? ["Tôi muốn tìm T-Shirt", "Tôi muốn tìm Hoodie", "Tôi muốn tìm Ceramic Mug", "Tôi muốn tìm Sweatshirt"]
         : ["I want to find T-Shirt", "I want to find Hoodie", "I want to find Ceramic Mug", "I want to find Sweatshirt"];
     }
-    if (missingField === "country") {
-      return isVi
-        ? ["Giao hàng tại thị trường US", "Giao hàng tại thị trường VN", "Giao hàng tại thị trường DE", "Giao hàng tại thị trường UK"]
-        : ["Ship to United States (US)", "Ship to Vietnam (VN)", "Ship to Germany (DE)", "Ship to United Kingdom (GB)"];
+    if (missingField === "shipping_location") {
+      return [];
     }
   }
 
@@ -309,8 +336,12 @@ function formatPercent(value?: number, missing = "N/A") {
   return typeof value === "number" ? `${value.toFixed(2)}%` : missing;
 }
 
+function normalizeDeliveryText(value: string | undefined) {
+  return value?.replace("bussiness", "business");
+}
+
 function formatDelivery(value: string | undefined, labels: CopyText) {
-  return value || String(labels.deliveryMissing);
+  return normalizeDeliveryText(value) || String(labels.deliveryMissing);
 }
 
 function formatSellingPrice(item: RecommendedItem, labels: CopyText) {
@@ -318,12 +349,12 @@ function formatSellingPrice(item: RecommendedItem, labels: CopyText) {
 }
 
 function printCostValue(item: RecommendedItem) {
-  return typeof item.second_item_price === "number" ? item.second_item_price : item.clone_price;
+  return item.second_item_price;
 }
 
 function formatPrintCost(item: RecommendedItem, printSides?: "front" | "both") {
   const sides = printSides || item.print_sides;
-  return formatMoney(sides === "both" ? (printCostValue(item) || 0) : 0);
+  return sides === "both" ? formatMoney(item.second_item_price) : formatMoney(0);
 }
 
 function formatLandedCost(item: RecommendedItem) {
@@ -331,7 +362,7 @@ function formatLandedCost(item: RecommendedItem) {
 }
 
 function fullOrderTotalValue(item: RecommendedItem, printSides?: "front" | "both") {
-  const printCost = printSides === "both" ? (printCostValue(item) || 0) : 0;
+  const printCost = printSides === "both" && typeof item.second_item_price === "number" ? item.second_item_price : 0;
   return (item.base_cost || 0) + printCost + (item.shipping_fee || 0);
 }
 
@@ -356,6 +387,50 @@ function missingRecommendationPrompts(item: RecommendedItem, labels: CopyText) {
 function formatCarrier(value?: string[] | string) {
   if (Array.isArray(value)) return value.join(", ");
   return value || "N/A";
+}
+
+function selectedCarrierName(item: RecommendedItem | null) {
+  if (!item) return "";
+  if (Array.isArray(item.carrier)) return item.carrier[0] || "";
+  return item.carrier || "";
+}
+
+function carrierOptionKey(option: CarrierOption) {
+  return `${option.carrier}-${option.fee}-${normalizeDeliveryText(option.sla) || "N/A"}`;
+}
+
+function carrierOptions(item: RecommendedItem | null) {
+  const options = item?.available_carriers || [];
+  return Array.from(new Map(options.map((option) => {
+    const normalizedOption = { ...option, sla: normalizeDeliveryText(option.sla) };
+    return [carrierOptionKey(normalizedOption), normalizedOption];
+  })).values());
+}
+
+function carrierOptionLabel(option: CarrierOption) {
+  return `${option.carrier} - ${formatMoney(option.fee)} - ${option.sla || "N/A"}`;
+}
+
+function applyCarrierSelection(item: RecommendedItem, option: CarrierOption, printSides: "front" | "both") {
+  const baseCost = item.base_cost || 0;
+  const printCost = printSides === "both" && typeof item.second_item_price === "number" ? item.second_item_price : 0;
+  const taxRate = item.tax_rate || 0;
+  const taxFee = (baseCost + printCost) * taxRate;
+  const landedCost = baseCost + printCost + option.fee + taxFee;
+  const nextItem: RecommendedItem = {
+    ...item,
+    carrier: [option.carrier],
+    shipping_fee: option.fee,
+    delivery_time: option.sla,
+    tax_fee: Number(taxFee.toFixed(2)),
+    landed_cost: Number(landedCost.toFixed(2))
+  };
+  if (typeof item.selling_price === "number") {
+    const profit = item.selling_price - landedCost;
+    nextItem.profit = Number(profit.toFixed(2));
+    nextItem.margin_percent = item.selling_price > 0 ? Number(((profit / item.selling_price) * 100).toFixed(2)) : 0;
+  }
+  return nextItem;
 }
 
 const colorHexByName: Record<string, string> = {
@@ -421,21 +496,7 @@ function productName(item: RecommendedItem) {
 
 function imageUrl(item: RecommendedItem | null) {
   if (!item) return "";
-  const url = item.mockup_url || item.image_url || "";
-  if (!url || url.includes("api.burgerprints.com")) {
-    const name = (item.product_name || item.display_name || "").toLowerCase();
-    if (name.includes("hoodie")) {
-      return "https://d1ud88wu9m1k4s.cloudfront.net/assets/base-mockups/burgerprints/062025/USG18500.png";
-    }
-    if (name.includes("sweatshirt") || name.includes("sweater")) {
-      return "https://d1ud88wu9m1k4s.cloudfront.net/assets/base-mockups/burgerprints/062025/USG18000.png";
-    }
-    if (name.includes("mug") || name.includes("ceramic")) {
-      return "https://d1ud88wu9m1k4s.cloudfront.net/assets/base-mockups/burgerprints/062025/US11OZ.png";
-    }
-    return "https://d1ud88wu9m1k4s.cloudfront.net/assets/base-mockups/burgerprints/062025/USG5000.png";
-  }
-  return url;
+  return item.image_url || item.mockup_url || "";
 }
 
 function hasTypedOrderFields(form: OrderForm) {
@@ -459,6 +520,87 @@ function isSandboxOrderCreated(response: AgentResponse) {
 
 function displayMessageText(message: ChatMessage) {
   return message.text;
+}
+
+function tokenMetaOrZero(meta?: TokenMeta): TokenMeta {
+  return {
+    tokens_input: Math.max(0, Math.floor(meta?.tokens_input || 0)),
+    tokens_output: Math.max(0, Math.floor(meta?.tokens_output || 0)),
+    tokens_total: Math.max(0, Math.floor(meta?.tokens_total || 0)),
+  };
+}
+
+function tokenTurns(messages: ChatMessage[]) {
+  return messages
+    .filter((message) => message.role === "assistant" && message.response?.meta)
+    .map((message, index) => ({ index: index + 1, meta: tokenMetaOrZero(message.response?.meta), text: displayMessageText(message) }));
+}
+
+function TokenBadge({ meta, labels }: { meta?: TokenMeta; labels: CopyText }) {
+  if (!meta) return null;
+  const safe = tokenMetaOrZero(meta);
+  return (
+    <div className="token-badge" aria-label="Token usage badge">
+      <span>{String(labels.tokenInput)} {safe.tokens_input}</span>
+      <span>{String(labels.tokenOutput)} {safe.tokens_output}</span>
+      <strong>{String(labels.tokenTotal)} {safe.tokens_total}</strong>
+    </div>
+  );
+}
+
+function TokenDebugPage({ messages, labels, onBack }: { messages: ChatMessage[]; labels: CopyText; onBack: () => void }) {
+  const turns = tokenTurns(messages);
+  const aggregate = turns.reduce(
+    (acc, turn) => ({
+      tokens_input: acc.tokens_input + turn.meta.tokens_input,
+      tokens_output: acc.tokens_output + turn.meta.tokens_output,
+      tokens_total: acc.tokens_total + turn.meta.tokens_total,
+    }),
+    { tokens_input: 0, tokens_output: 0, tokens_total: 0 }
+  );
+  const total = Math.max(aggregate.tokens_total, 1);
+  const inputPct = Math.round((aggregate.tokens_input / total) * 100);
+  const outputPct = Math.max(0, 100 - inputPct);
+
+  return (
+    <section className="debug-page" aria-label="Token Debugging View">
+      <div className="debug-page-header">
+        <div>
+          <small>DEBUG ROUTE</small>
+          <h1>{String(labels.tokenDebug)}</h1>
+          <p>{String(labels.tokenSessionTotal)} · {turns.length} turns</p>
+        </div>
+        <button type="button" className="secondary-action" onClick={onBack}>Dashboard</button>
+      </div>
+      <div className="token-total-card">
+        <span>{String(labels.tokenSessionTotal)}</span>
+        <strong>{aggregate.tokens_total}</strong>
+        <div className="token-stack" aria-label="Input output token ratio">
+          <div className="input" style={{ width: `${inputPct}%` }} />
+          <div className="output" style={{ width: `${outputPct}%` }} />
+        </div>
+        <div className="token-ratio-row">
+          <span>{String(labels.tokenInput)} {aggregate.tokens_input}</span>
+          <span>{String(labels.tokenOutput)} {aggregate.tokens_output}</span>
+        </div>
+      </div>
+      {turns.length === 0 ? (
+        <p className="token-empty">{String(labels.tokenNoData)}</p>
+      ) : (
+        <div className="token-turn-list">
+          {turns.map((turn) => (
+            <div className="token-turn-card" key={turn.index}>
+              <div>
+                <strong>Turn {turn.index}</strong>
+                <p>{turn.text.slice(0, 140) || "Assistant response"}</p>
+              </div>
+              <TokenBadge meta={turn.meta} labels={labels} />
+            </div>
+          ))}
+        </div>
+      )}
+    </section>
+  );
 }
 
 function renderMarkdown(text: string) {
@@ -499,15 +641,46 @@ function renderMarkdown(text: string) {
     }
   };
 
+  const isPipeTableLine = (value: string) => value.startsWith("|") && value.endsWith("|");
+  const isBlockStart = (value: string) => (
+    value === "" ||
+    value === "---" ||
+    value.startsWith("## ") ||
+    value.startsWith("### ") ||
+    value.startsWith("&gt;") ||
+    value.startsWith("- ") ||
+    isPipeTableLine(value)
+  );
+
   for (let i = 0; i < lines.length; i++) {
     const line = lines[i];
     const trimmed = line.trim();
+
+    if (isPipeTableLine(trimmed)) {
+      closeList();
+      closeBlockquote();
+      continue;
+    }
 
     // Check for Horizontal Rule
     if (trimmed === "---") {
       closeList();
       closeBlockquote();
       html += "<hr />";
+      continue;
+    }
+
+    if (trimmed.startsWith("### ")) {
+      closeList();
+      closeBlockquote();
+      html += `<h3>${trimmed.slice(4)}</h3>`;
+      continue;
+    }
+
+    if (trimmed.startsWith("## ")) {
+      closeList();
+      closeBlockquote();
+      html += `<h2>${trimmed.slice(3)}</h2>`;
       continue;
     }
 
@@ -552,7 +725,7 @@ function renderMarkdown(text: string) {
     let paragraphLines = [trimmed];
     while (i + 1 < lines.length) {
       const nextTrimmed = lines[i + 1].trim();
-      if (nextTrimmed === "" || nextTrimmed === "---" || nextTrimmed.startsWith("&gt;") || nextTrimmed.startsWith("- ")) {
+      if (isBlockStart(nextTrimmed)) {
         break;
       }
       paragraphLines.push(nextTrimmed);
@@ -639,7 +812,7 @@ export default function App() {
   const [apiWarming, setApiWarming] = useState(false);
   const [isAuthenticated, setIsAuthenticated] = useState(false);
   const [language, setLanguage] = useState<Language>("vi");
-  const [market, setMarket] = useState("US");
+  const [market, setMarket] = useState("");
   const [month, setMonth] = useState(new Date().getMonth() + 1);
   const [pendingMarket, setPendingMarket] = useState<string | null>(null);
   const [suggestions, setSuggestions] = useState<SuggestedQuestions | null>(null);
@@ -652,15 +825,51 @@ export default function App() {
   const [recommendedItems, setRecommendedItems] = useState<RecommendedItem[]>([]);
   const [selectedItem, setSelectedItem] = useState<RecommendedItem | null>(null);
   const [orderForm, setOrderForm] = useState<OrderForm>(emptyOrderForm);
+  const [shippingDropdownOpen, setShippingDropdownOpen] = useState(false);
   const [frontDesignPreviewUrl, setFrontDesignPreviewUrl] = useState("");
   const [orderNotice, setOrderNotice] = useState("");
   const [showOrderSuccessCenter, setShowOrderSuccessCenter] = useState(false);
   const [createdOrderTotal, setCreatedOrderTotal] = useState("");
   const [orderStatus, setOrderStatus] = useState<"empty" | "selected" | "collecting" | "confirming" | "disabled" | "created">("empty");
   const [orderPanelTab, setOrderPanelTab] = useState<"checkout" | "orders">("checkout");
+  const [ordersList, setOrdersList] = useState<OrderHistoryItem[]>([]);
+  const [loadingOrders, setLoadingOrders] = useState(false);
   const [pendingSuggestion, setPendingSuggestion] = useState<string | null>(null);
+  const [currentPath, setCurrentPath] = useState(() => window.location.pathname);
+
+  const loadOrdersHistory = async () => {
+    setLoadingOrders(true);
+    try {
+      const history = await getOrdersHistory(50);
+      setOrdersList(history);
+    } catch (err) {
+      console.error("Failed to load orders history:", err);
+    } finally {
+      setLoadingOrders(false);
+    }
+  };
+
+  useEffect(() => {
+    if (orderPanelTab === "orders") {
+      loadOrdersHistory();
+    }
+  }, [orderPanelTab]);
+
+  useEffect(() => {
+    const syncPath = () => setCurrentPath(window.location.pathname);
+    window.addEventListener("popstate", syncPath);
+    return () => {
+      window.removeEventListener("popstate", syncPath);
+      if (renderIntervalRef.current) {
+        window.clearInterval(renderIntervalRef.current);
+      }
+    };
+  }, []);
+
   const chatStreamRef = useRef<HTMLDivElement | null>(null);
   const suggestionTimerRef = useRef<number | null>(null);
+  const accumulatorRef = useRef<string>("");
+  const renderIntervalRef = useRef<number | null>(null);
 
   const t = copy[language];
   const latestResponse = [...messages].reverse().find((message) => message.response)?.response;
@@ -668,7 +877,6 @@ export default function App() {
   const displayedSuggestions = getDynamicSuggestions(latestResponse, language, defaultSuggestions, orderStatus, selectedItem);
   const orderDirty = orderStatus !== "selected" && (Boolean(selectedItem) || hasTypedOrderFields(orderForm));
   const orderReadyToConfirm = orderStatus === "confirming" || isOrderConfirmationPrompt(orderNotice);
-  const needsCountry = latestResponse?.data?.clarification_required && latestResponse.data.missing_field === "country";
   const showTopSuggestions = displayedSuggestions.length > 0 && !showOrderSuccessCenter && messages.length === 0;
   const showBottomSuggestions = displayedSuggestions.length > 0 && messages.length > 0;
   const isStreamingActive = messages.length > 0 && messages[messages.length - 1].role === "assistant" && messages[messages.length - 1].isStreaming === true;
@@ -726,6 +934,13 @@ export default function App() {
     });
     return () => window.cancelAnimationFrame(frame);
   }, [messages.length, loading]);
+
+  function navigateTo(path: string) {
+    if (window.location.pathname !== path) {
+      window.history.pushState(null, "", path);
+    }
+    setCurrentPath(path);
+  }
 
   function persistChatSession(nextMessages: ChatMessage[], nextSessionId: string | null, nextLanguage: Language) {
     const firstUserMessage = nextMessages.find((message) => message.role === "user");
@@ -855,6 +1070,7 @@ export default function App() {
       setSelectedItem(null);
       setOrderForm({ ...emptyOrderForm, shipping_country: market });
       setFrontDesignPreviewUrl("");
+      loadOrdersHistory();
     }
   }
 
@@ -907,9 +1123,29 @@ export default function App() {
     setInput("");
     setLoading(true);
 
-    let currentAssistantText = "";
     let currentAssistantSteps: Array<{ step: string; message: string }> = [];
     let startedStreamingTokens = false;
+
+    // Reset accumulator và render interval
+    accumulatorRef.current = "";
+    if (renderIntervalRef.current) {
+      window.clearInterval(renderIntervalRef.current);
+    }
+
+    let lastRenderedText = "";
+    renderIntervalRef.current = window.setInterval(() => {
+      const textToRender = accumulatorRef.current;
+      if (textToRender !== lastRenderedText) {
+        lastRenderedText = textToRender;
+        setMessages((prev) =>
+          prev.map((msg) =>
+            msg.id === assistantMessageId
+              ? { ...msg, text: textToRender }
+              : msg
+          )
+        );
+      }
+    }, 40);
 
     const onChunk = (chunk: any) => {
       if (chunk.step && chunk.message) {
@@ -924,26 +1160,26 @@ export default function App() {
             )
           );
         }
-      } else if (chunk.token) {
+      } else if (chunk.text || chunk.token) {
+        const newText = chunk.text || chunk.token;
         if (!startedStreamingTokens) {
           startedStreamingTokens = true;
         }
-        currentAssistantText += chunk.token;
-        setMessages((prev) =>
-          prev.map((msg) =>
-            msg.id === assistantMessageId
-              ? { ...msg, text: currentAssistantText }
-              : msg
-          )
-        );
-      } else if (chunk.session_id && chunk.answer) {
-        currentAssistantText = chunk.answer;
+        accumulatorRef.current += newText;
+      } else if (chunk.session_id) {
+        // Dừng render interval lập tức
+        if (renderIntervalRef.current) {
+          window.clearInterval(renderIntervalRef.current);
+          renderIntervalRef.current = null;
+        }
+
+        let finalAnswer = chunk.answer || accumulatorRef.current;
         setMessages((prev) =>
           prev.map((msg) =>
             msg.id === assistantMessageId
               ? {
                   ...msg,
-                  text: currentAssistantText,
+                  text: finalAnswer,
                   response: chunk,
                   isStreaming: false,
                 }
@@ -964,6 +1200,10 @@ export default function App() {
         return finalPrev;
       });
     } catch {
+      if (renderIntervalRef.current) {
+        window.clearInterval(renderIntervalRef.current);
+        renderIntervalRef.current = null;
+      }
       const errorText = String(copy[nextLanguage].apiError);
       setMessages((prev) =>
         prev.map((msg) =>
@@ -977,6 +1217,10 @@ export default function App() {
         return finalPrev;
       });
     } finally {
+      if (renderIntervalRef.current) {
+        window.clearInterval(renderIntervalRef.current);
+        renderIntervalRef.current = null;
+      }
       setLoading(false);
     }
   }
@@ -1027,18 +1271,51 @@ export default function App() {
   }
 
   function selectProduct(item: RecommendedItem) {
-    setSelectedItem(item);
+    const nextItem = { ...item };
+    if ((!nextItem.variants || nextItem.variants.length === 0) && selectedItem?.variants && selectedItem.variants.length > 0) {
+      nextItem.variants = selectedItem.variants;
+    }
+
+    setSelectedItem(nextItem);
     setOrderStatus("selected");
     setOrderPanelTab("checkout");
     setOrderForm((current) => ({
       ...current,
       shipping_country: market,
+      shipping_carrier: selectedCarrierName(nextItem),
     }));
+    setShippingDropdownOpen(false);
   }
 
   function selectProductBySku(sku: string) {
-    const item = recommendedItems.find((option) => option.sku === sku);
+    let item = recommendedItems.find((option) => option.sku === sku);
+    if (!item) {
+      for (const recItem of recommendedItems) {
+        if (recItem.variants) {
+          const found = recItem.variants.find((v) => v.sku === sku);
+          if (found) {
+            item = found;
+            break;
+          }
+        }
+      }
+    }
+    if (!item && selectedItem?.variants) {
+      const found = selectedItem.variants.find((v) => v.sku === sku);
+      if (found) {
+        item = found;
+      }
+    }
     if (item) selectProduct(item);
+  }
+
+  function updateSelectedCarrierOption(option: CarrierOption) {
+    if (!selectedItem) return;
+    const nextItem = applyCarrierSelection(selectedItem, option, orderForm.print_sides);
+    setSelectedItem(nextItem);
+    setRecommendedItems((items) => items.map((item) => item.sku === nextItem.sku ? nextItem : item));
+    setOrderForm((current) => ({ ...current, shipping_carrier: option.carrier }));
+    setShippingDropdownOpen(false);
   }
 
   function updateFrontDesignUrl(value: string) {
@@ -1060,12 +1337,18 @@ export default function App() {
 
   async function startOrder(item: RecommendedItem) {
     selectProduct(item);
+    const referenceOrderId = orderForm.reference_order_id || defaultReferenceOrderId(item);
     setOrderForm((current) => ({
       ...current,
-      reference_order_id: current.reference_order_id || defaultReferenceOrderId(item),
+      reference_order_id: current.reference_order_id || referenceOrderId,
     }));
-    const skuText = item.sku ? ` SKU ${item.sku}` : "";
-    const response = await sendSilentAgentCommand(language === "vi" ? `tạo sandbox order cho${skuText}` : `create sandbox order for${skuText}`);
+    const message = buildOrderStartMessage(item, {
+      country: market,
+      carrier: selectedCarrierName(item),
+      printSides: orderForm.print_sides,
+      referenceOrderId,
+    });
+    const response = await sendSilentAgentCommand(message);
     if (response && !response.confirmation_required && response.data?.status !== "disabled" && response.data?.status !== "created" && !response.data?.id) {
       setOrderStatus("collecting");
     }
@@ -1130,6 +1413,37 @@ export default function App() {
     );
   }
 
+  if (currentPath.startsWith("/debug")) {
+    const debugMessages = messages.length ? messages : chatSessions.find((chat) => chat.id === activeChatId)?.messages || chatSessions[0]?.messages || [];
+
+    return (
+      <main className="app-shell debug-shell">
+        <header className="topbar">
+          <div className="brand-lockup" aria-label="BURGER Agent">
+            <img className="brand-mark" src="/img/logo (1).svg" alt="" aria-hidden="true" />
+            <img className="brand-wordmark" src="/img/logoChu.svg" alt="BURGER Agent" />
+          </div>
+          <nav className="topnav" aria-label="Primary">
+            <button type="button" className="topnav-button" onClick={() => navigateTo("/")}>Dashboard</button>
+            <button type="button" className="topnav-button active" onClick={() => navigateTo("/debug")}>{String(t.tokenDebug)}</button>
+          </nav>
+          <div className="header-controls">
+            <label className="control-pill">
+              <span>{t.language}</span>
+              <select value={language} onChange={(event) => setLanguage(event.target.value as Language)}>
+                <option value="vi">VI</option>
+                <option value="en">EN</option>
+              </select>
+            </label>
+            <span className={apiOnline ? "status-pill live" : "status-pill offline"}>{apiOnline ? t.apiLive : apiWarming ? t.apiWarming : t.apiOffline}</span>
+            <button type="button" className="logout-button" onClick={() => setIsAuthenticated(false)}>Logout</button>
+          </div>
+        </header>
+        <TokenDebugPage messages={debugMessages} labels={t} onBack={() => navigateTo("/")} />
+      </main>
+    );
+  }
+
   return (
     <main className="app-shell">
       <header className="topbar">
@@ -1149,6 +1463,7 @@ export default function App() {
             </select>
           </label>
           <span className={apiOnline ? "status-pill live" : "status-pill offline"}>{apiOnline ? t.apiLive : apiWarming ? t.apiWarming : t.apiOffline}</span>
+          <button type="button" className="debug-route-button" onClick={() => navigateTo("/debug")}>{String(t.tokenDebug)}</button>
           <button type="button" className="logout-button" onClick={() => setIsAuthenticated(false)}>Logout</button>
         </div>
       </header>
@@ -1156,7 +1471,7 @@ export default function App() {
       <section className="hero-strip">
         <div>
           <span className="announcement">{t.announcement}</span>
-          <h1>{t.heroPrefix} <span>{market}</span></h1>
+          <h1>{t.heroPrefix} <span>{market || "Global"}</span></h1>
           <p>{t.heroText}</p>
         </div>
         <div className="hero-card" aria-hidden="true">
@@ -1209,6 +1524,7 @@ export default function App() {
             )}
             {messages.map((message) => {
               const hasContent = displayMessageText(message) || message.response?.data?.items?.length || message.response?.data?.clarification_required;
+              const countryOptions = suggestedCountries(message.response);
               return (
                 <article key={message.id} className={`message ${message.role}`}>
                   {message.role === "assistant" ? (
@@ -1233,9 +1549,14 @@ export default function App() {
                           {message.response?.data?.items?.length ? (
                             <RecommendationAnswerBox items={message.response.data.items} labels={t} onOrder={startOrder} onAskPrice={submitSuggestedMessage} />
                           ) : null}
-                          {message.response?.data?.clarification_required && (
-                            <div className="country-chips">
-                              {markets.slice(0, 5).map((value) => <button key={value} type="button" onClick={() => submitMessage(value)}>{value}</button>)}
+                          {countryOptions.length > 0 && (
+                            <div className="country-badges" aria-label="Supported shipping countries">
+                              {countryOptions.map((country) => (
+                                <button key={country.code} type="button" className="country-badge" onClick={() => submitMessage(country.code)}>
+                                  <b>{country.code}</b>
+                                  <span>({country.name})</span>
+                                </button>
+                              ))}
                             </div>
                           )}
                         </div>
@@ -1303,11 +1624,65 @@ export default function App() {
             <button type="button" className={orderPanelTab === "orders" ? "active" : ""} onClick={() => setOrderPanelTab("orders")}>{t.ordersTab}</button>
           </div>
           {orderPanelTab === "orders" ? (
-            <div className="orders-empty">
-              <div className="placeholder-image">BP</div>
-              <h2>{t.ordersTab}</h2>
-              <p>{t.orderHistoryEmpty}</p>
-            </div>
+            loadingOrders ? (
+              <div className="orders-loading" style={{ padding: "20px", textAlign: "center", color: "var(--text-muted, #4b5563)" }}>
+                <span>{language === "vi" ? "Đang tải danh sách đơn hàng..." : "Loading orders..."}</span>
+              </div>
+            ) : ordersList.length === 0 ? (
+              <div className="orders-empty">
+                <div className="placeholder-image">BP</div>
+                <h2>{t.ordersTab}</h2>
+                <p>{t.orderHistoryEmpty}</p>
+              </div>
+            ) : (
+              <div className="orders-list-container" style={{ padding: "16px", overflowY: "auto", maxHeight: "calc(100vh - 200px)" }}>
+                <h2 style={{ fontSize: "14px", fontWeight: "bold", marginBottom: "16px", color: "var(--text-color, #1f2937)" }}>
+                  {language === "vi" ? "Đơn hàng đã đặt" : "Placed Orders"} ({ordersList.length})
+                </h2>
+                <div style={{ display: "flex", flexDirection: "column", gap: "12px" }}>
+                  {ordersList.map((order) => (
+                    <div
+                      key={order.id}
+                      className="order-history-card"
+                      style={{
+                        padding: "12px",
+                        border: "1px solid var(--border-color, #e2e8f0)",
+                        borderRadius: "8px",
+                        background: "var(--card-bg, #ffffff)",
+                        boxShadow: "0 1px 3px rgba(0,0,0,0.05)"
+                      }}
+                    >
+                      <div style={{ display: "flex", justifyContent: "space-between", marginBottom: "8px", alignItems: "center" }}>
+                        <span style={{ fontWeight: "bold", fontSize: "13px", color: "#3b82f6" }}>
+                          {order.order_number}
+                        </span>
+                        <span
+                          style={{
+                            fontSize: "10px",
+                            padding: "2px 6px",
+                            borderRadius: "4px",
+                            background: order.status === "created" ? "#e0f2fe" : "#f3f4f6",
+                            color: order.status === "created" ? "#0369a1" : "#374151",
+                            fontWeight: "bold",
+                            textTransform: "uppercase"
+                          }}
+                        >
+                          {order.status}
+                        </span>
+                      </div>
+                      <div style={{ fontSize: "13px", display: "flex", flexDirection: "column", gap: "4px", color: "var(--text-muted, #4b5563)" }}>
+                        <div><b>SKU:</b> {order.sku}</div>
+                        <div><b>Khách hàng:</b> {order.customer_name}</div>
+                        <div><b>Tổng tiền:</b> {formatMoney(order.total_amount)}</div>
+                        <div style={{ fontSize: "11px", color: "#9ca3af", marginTop: "4px" }}>
+                          {new Date(order.created_at).toLocaleString()}
+                        </div>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )
           ) : orderStatus === "created" ? (
             <div className="checkout-container">
               <section className="checkout-success-view">
@@ -1344,25 +1719,109 @@ export default function App() {
                   </div>
                 </div>
                 {(() => {
-                  const partnerOptions = recommendedItems.filter(
-                    (item) => (item.partner_name || "BurgerPrints") === (selectedItem?.partner_name || "BurgerPrints")
-                  );
-                  return partnerOptions.length > 1 && (
-                    <div className="sku-option-select">
+                  const partnerOptions = (selectedItem?.variants && selectedItem.variants.length > 0)
+                    ? selectedItem.variants
+                    : recommendedItems.filter(
+                        (item) => (item.partner_name || "BurgerPrints") === (selectedItem?.partner_name || "BurgerPrints")
+                      );
+
+                  if (partnerOptions.length === 0) return null;
+
+                  // 1. Sort by landed_cost ASC
+                  const sortedOptions = [...partnerOptions].sort((a, b) => (a.landed_cost || 0) - (b.landed_cost || 0));
+
+                  // 2. Lấy danh sách các màu độc nhất
+                  const colors = Array.from(new Set(sortedOptions.map((item) => item.color || "N/A")));
+
+                  // Xác định màu sắc đang active
+                  const activeColor = selectedItem?.color || colors[0] || "N/A";
+
+                  // Lọc các variants thuộc màu đang active
+                  const activeColorVariants = sortedOptions.filter((item) => (item.color || "N/A") === activeColor);
+
+                  // Loại bỏ các bản trùng lặp (size, partner_name), giữ lại item rẻ nhất
+                  const uniqueActiveVariants: RecommendedItem[] = [];
+                  const seenKeys = new Set<string>();
+                  activeColorVariants.forEach((item) => {
+                    const key = `${item.size || "N/A"}-${item.partner_name || "N/A"}`;
+                    if (!seenKeys.has(key)) {
+                      seenKeys.add(key);
+                      uniqueActiveVariants.push(item);
+                    }
+                  });
+
+                  return (
+                    <div className="sku-option-select" style={{ display: "grid", gap: "12px", marginTop: "18px" }}>
                       <span>{t.skuOption}</span>
-                      <div className="sku-option-list">
-                        {partnerOptions.map((item) => (
-                          <button
-                            key={item.sku}
-                            type="button"
-                            className={selectedItem?.sku === item.sku ? "sku-option active" : "sku-option"}
-                            onClick={() => selectProductBySku(item.sku || "")}
-                          >
-                            <ColorChip color={item.color} />
-                            <small>{item.size || "N/A"} - {item.partner_name || "N/A"}</small>
-                            <strong>{formatLandedCost(item)}</strong>
-                          </button>
-                        ))}
+
+                      {/* Chọn màu sắc (chỉ hiển thị nếu có nhiều hơn 1 màu) */}
+                      {colors.length > 1 && (
+                        <div className="color-selector" style={{ display: "flex", flexWrap: "wrap", gap: "8px" }}>
+                          {colors.map((color) => {
+                            const isActive = activeColor === color;
+                            const firstVarOfColor = sortedOptions.find((item) => (item.color || "N/A") === color);
+                            return (
+                              <button
+                                key={color}
+                                type="button"
+                                className={isActive ? "sku-option active" : "sku-option"}
+                                style={{
+                                  padding: "6px 12px",
+                                  borderRadius: "20px",
+                                  border: isActive ? "2px solid #075ac9" : "1px solid var(--color-border)",
+                                  display: "inline-flex",
+                                  alignItems: "center",
+                                  gap: "6px",
+                                  cursor: "pointer"
+                                }}
+                                onClick={() => {
+                                  if (firstVarOfColor) {
+                                    selectProductBySku(firstVarOfColor.sku || "");
+                                  }
+                                }}
+                              >
+                                <ColorChip color={color === "N/A" ? undefined : color} />
+                              </button>
+                            );
+                          })}
+                        </div>
+                      )}
+
+                      {/* Chọn Size / Supplier cho màu đang active */}
+                      <div className="variant-details-selector" style={{ display: "grid", gap: "6px" }}>
+                        <span style={{ fontSize: "11px", color: "var(--color-text-secondary)" }}>
+                          {language === "vi" ? "Kích cỡ & Xưởng sản xuất:" : "Size & Supplier:"}
+                        </span>
+                        <div className="sku-option-list" style={{ display: "flex", flexWrap: "wrap", gap: "6px", maxHeight: "180px", overflowY: "auto", paddingRight: "4px" }}>
+                          {uniqueActiveVariants.map((item) => {
+                            const isSkuActive = selectedItem?.sku === item.sku;
+                            return (
+                              <button
+                                key={item.sku}
+                                type="button"
+                                className={isSkuActive ? "sku-option active" : "sku-option"}
+                                style={{
+                                  padding: "8px 12px",
+                                  borderRadius: "8px",
+                                  fontSize: "12px",
+                                  display: "inline-flex",
+                                  flexDirection: "column",
+                                  alignItems: "flex-start",
+                                  gap: "2px",
+                                  textAlign: "left",
+                                  height: "auto",
+                                  minWidth: "90px",
+                                  border: isSkuActive ? "2px solid #075ac9" : "1px solid var(--color-border)"
+                                }}
+                                onClick={() => selectProductBySku(item.sku || "")}
+                              >
+                                <span style={{ fontWeight: "bold", fontSize: "12px" }}>{item.size || "N/A"}</span>
+                                <span style={{ fontSize: "10px", opacity: 0.8, fontWeight: "normal" }}>{item.partner_name || "N/A"}</span>
+                                <strong style={{ fontSize: "11px", marginTop: "2px", color: isSkuActive ? "#075ac9" : "var(--color-text-primary)" }}>{formatLandedCost(item)}</strong>
+                              </button>
+                            );
+                          })}
+                        </div>
                       </div>
                     </div>
                   );
@@ -1409,8 +1868,8 @@ export default function App() {
                   <div className="checkout-section-title">
                     <span>{language === "vi" ? "Tùy chọn in ấn" : "Print Options"}</span>
                   </div>
-                  <div className="print-sides-options" style={{ display: "flex", gap: "16px", marginTop: "4px" }}>
-                    <label style={{ display: "flex", alignItems: "center", gap: "6px", cursor: "pointer", fontWeight: "bold" }}>
+                  <div className="print-sides-options" role="radiogroup" aria-label={language === "vi" ? "Tùy chọn in ấn" : "Print Options"}>
+                    <label className="print-side-option">
                       <input
                         type="radio"
                         name="print_sides"
@@ -1420,7 +1879,7 @@ export default function App() {
                       />
                       <span>{language === "vi" ? "In 1 mặt (Front only)" : "Front side only"}</span>
                     </label>
-                    <label style={{ display: "flex", alignItems: "center", gap: "6px", cursor: "pointer", fontWeight: "bold" }}>
+                    <label className="print-side-option">
                       <input
                         type="radio"
                         name="print_sides"
@@ -1432,6 +1891,55 @@ export default function App() {
                     </label>
                   </div>
                 </section>
+
+                {carrierOptions(selectedItem).length > 0 && (
+                  <section className="checkout-section shipping-method-section">
+                    <div className="checkout-section-title">
+                      <span>{t.shippingMethod}</span>
+                      <small>{formatCarrier(selectedItem.carrier)}</small>
+                    </div>
+                    <div className="shipping-method-field">
+                      <span>{language === "vi" ? "Chọn phương thức" : "Select method"}</span>
+                      {(() => {
+                        const options = carrierOptions(selectedItem);
+                        const selectedCarrier = options.find((carrier) => carrier.carrier === (orderForm.shipping_carrier || selectedCarrierName(selectedItem))) || options[0];
+                        return (
+                          <div className="shipping-dropdown">
+                            <button
+                              type="button"
+                              className="shipping-dropdown-trigger"
+                              aria-haspopup="listbox"
+                              aria-expanded={shippingDropdownOpen}
+                              onClick={() => setShippingDropdownOpen((open) => !open)}
+                            >
+                              <span>{selectedCarrier ? carrierOptionLabel(selectedCarrier) : "N/A"}</span>
+                              <span className="shipping-dropdown-chevron" aria-hidden="true">⌄</span>
+                            </button>
+                            {shippingDropdownOpen && (
+                              <div className="shipping-dropdown-menu" role="listbox">
+                                {options.map((carrier) => {
+                                  const isActive = selectedCarrier ? carrierOptionKey(carrier) === carrierOptionKey(selectedCarrier) : false;
+                                  return (
+                                    <button
+                                      key={carrierOptionKey(carrier)}
+                                      type="button"
+                                      className={`shipping-dropdown-option${isActive ? " active" : ""}`}
+                                      role="option"
+                                      aria-selected={isActive}
+                                      onClick={() => updateSelectedCarrierOption(carrier)}
+                                    >
+                                      <span>{carrierOptionLabel(carrier)}</span>
+                                    </button>
+                                  );
+                                })}
+                              </div>
+                            )}
+                          </div>
+                        );
+                      })()}
+                    </div>
+                  </section>
+                )}
 
                 {orderNotice && (
                   <section className="checkout-section order-notice">
@@ -1548,6 +2056,7 @@ function RecommendationAnswerBox({ items, labels, onOrder, onAskPrice }: { items
       )}
       <div className="mini-comparison" role="table" aria-label="Top recommended SKUs">
         <div className="mini-row mini-row-header" role="row">
+          <span>{labels.productName}</span>
           <span>{labels.color}</span>
           <span>{labels.size}</span>
           <span>{labels.supplier}</span>
@@ -1562,6 +2071,7 @@ function RecommendationAnswerBox({ items, labels, onOrder, onAskPrice }: { items
         </div>
         {topItems.map((item) => (
           <div key={item.sku} className="mini-row" role="row">
+            <span>{productName(item)}</span>
             <ColorChip color={item.color} />
             <span>{item.size || "N/A"}</span>
             <span>{item.partner_name || item.location_name || "N/A"}</span>

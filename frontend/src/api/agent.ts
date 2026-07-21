@@ -10,6 +10,18 @@ export type SuggestedQuestions = {
   suggestions: string[];
 };
 
+export type CarrierOption = {
+  carrier: string;
+  fee: number;
+  sla?: string;
+};
+
+export type SuggestedCountry = {
+  code: string;
+  name: string;
+  flag: string;
+};
+
 export type RecommendedItem = {
   sku?: string;
   product_name?: string;
@@ -35,13 +47,22 @@ export type RecommendedItem = {
   quantity?: number;
   delivery_time?: string;
   carrier?: string[] | string;
+  available_carriers?: CarrierOption[];
   sla?: string | number | null;
   mockup_url?: string;
   image_url?: string;
   profit?: number;
   margin_percent?: number;
   print_sides?: "front" | "both" | "back";
+  api_sync_required?: boolean;
   filter_excess?: Record<string, unknown>;
+  variants?: RecommendedItem[];
+};
+
+export type TokenMeta = {
+  tokens_input: number;
+  tokens_output: number;
+  tokens_total: number;
 };
 
 export type AgentResponse = {
@@ -60,27 +81,38 @@ export type AgentResponse = {
     status?: string;
     sandbox?: boolean;
     id?: string;
+    metadata?: Record<string, unknown>;
+    margin_alert?: boolean;
+    custom_payload?: Record<string, unknown> & { suggested_countries?: SuggestedCountry[] };
   };
   notes?: string[];
   session_id: string;
+  meta?: TokenMeta;
   confirmation_required?: boolean;
 };
 
 export async function checkHealth() {
-  const response = await fetch(`${API_BASE_URL}/health`);
+  const response = await fetch(`${API_BASE_URL}/health`, {
+    headers: { "ngrok-skip-browser-warning": "true" }
+  });
   if (!response.ok) throw new Error("API health check failed");
   return response.json() as Promise<{ status: string }>;
 }
 
 export async function checkReady() {
-  const response = await fetch(`${API_BASE_URL}/ready`);
+  const response = await fetch(`${API_BASE_URL}/ready`, {
+    headers: { "ngrok-skip-browser-warning": "true" }
+  });
   if (!response.ok) throw new Error("API readiness check failed");
   return response.json() as Promise<{ ready: boolean; warming: boolean; warmup_ms?: number | null; error?: string | null }>;
 }
 
-export async function getSuggestions(country: string, month: number) {
-  const params = new URLSearchParams({ country, month: String(month) });
-  const response = await fetch(`${API_BASE_URL}/agent/suggestions?${params}`);
+export async function getSuggestions(country: string | null | undefined, month: number) {
+  const params = new URLSearchParams({ month: String(month) });
+  if (country?.trim()) params.set("country", country.trim());
+  const response = await fetch(`${API_BASE_URL}/agent/suggestions?${params}`, {
+    headers: { "ngrok-skip-browser-warning": "true" }
+  });
   if (!response.ok) throw new Error("Could not load suggestions");
   return response.json() as Promise<SuggestedQuestions>;
 }
@@ -91,7 +123,10 @@ export async function sendChatMessage(
 ): Promise<AgentResponse> {
   const response = await fetch(`${API_BASE_URL}/agent/chat`, {
     method: "POST",
-    headers: { "Content-Type": "application/json" },
+    headers: { 
+      "Content-Type": "application/json",
+      "ngrok-skip-browser-warning": "true"
+    },
     body: JSON.stringify({
       session_id: input.sessionId || undefined,
       message: input.message,
@@ -143,4 +178,28 @@ export async function sendChatMessage(
   }
 
   return finalPayload;
+}
+
+export type OrderHistoryItem = {
+  id: string;
+  order_number: string;
+  sku: string;
+  quantity: number;
+  customer_name: string;
+  customer_email?: string | null;
+  customer_phone?: string | null;
+  shipping_address: Record<string, any>;
+  total_amount: number;
+  status: string;
+  burgerprints_order_id?: string | null;
+  created_at: string;
+  updated_at: string;
+};
+
+export async function getOrdersHistory(limit = 50): Promise<OrderHistoryItem[]> {
+  const response = await fetch(`${API_BASE_URL}/api/orders/history?limit=${limit}`, {
+    headers: { "ngrok-skip-browser-warning": "true" }
+  });
+  if (!response.ok) throw new Error("Could not load order history");
+  return response.json() as Promise<OrderHistoryItem[]>;
 }

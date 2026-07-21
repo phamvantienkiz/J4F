@@ -323,34 +323,54 @@ class BurgerPrintsClient:
                     timeout=self.timeout
                 )
                 res_json = response.json()
+
+                # Log full response for debugging
+                logger.info(f"BurgerPrints API response: status={response.status_code}, data={res_json}")
+
                 # BurgerPrints tạo order thành công thường trả về status code 200 hoặc 201
                 if response.status_code in [200, 201]:
-                    # Format trả về: { "is_success": true, "message": "...", "order_id": "12345", "errors": [] }
+                    is_success = res_json.get("is_success", False)
+
+                    if is_success:
+                        return {
+                            "success": True,
+                            "order_id": str(res_json.get("order_id", "")),
+                            "status": "created",
+                            "sandbox": sandbox,
+                            "data": res_json
+                        }
+                    else:
+                        # API returned 200/201 but is_success=False - extract error message
+                        error_msg = res_json.get("message", "Unknown error")
+                        errors = res_json.get("errors", [])
+
+                        return {
+                            "success": False,
+                            "order_id": "",
+                            "status": "failed",
+                            "sandbox": sandbox,
+                            "error": error_msg,
+                            "errors": errors,
+                            "data": res_json
+                        }
+                else:
+                    # Non-2xx status code
+                    logger.error(f"BurgerPrints API error: status={response.status_code}, response={res_json}")
                     return {
-                        "success": res_json.get("is_success", False),
-                        "order_id": str(res_json.get("order_id", "")),
-                        "status": "created" if res_json.get("is_success") else "failed",
+                        "success": False,
+                        "order_id": "",
+                        "status": "failed",
                         "sandbox": sandbox,
+                        "error": f"API returned status {response.status_code}",
                         "data": res_json
                     }
+
         except Exception as e:
             logger.error(f"Lỗi khi gọi API tạo order: {str(e)}")
-
-        # Fallback tạo đơn sandbox ảo nếu API thật gặp lỗi hoặc cấu hình thử nghiệm
-        import uuid
-        order_id = f"ord-{uuid.uuid4().hex[:8]}"
-        return {
-            "success": True,
-            "order_id": order_id,
-            "status": "created",
-            "sandbox": sandbox,
-            "message": "Draft order simulated successfully (API Fallback)",
-            "items": order_data.get("items", []),
-            "shipping_address": {
-                "shipping_name": order_data.get("shipping_name", ""),
-                "shipping_address1": order_data.get("shipping_address1", ""),
-                "shipping_city": order_data.get("shipping_city", ""),
-                "shipping_zip": order_data.get("shipping_zip", ""),
-                "shipping_country": order_data.get("shipping_country", "")
+            return {
+                "success": False,
+                "order_id": "",
+                "status": "failed",
+                "sandbox": sandbox,
+                "error": str(e)
             }
-        }

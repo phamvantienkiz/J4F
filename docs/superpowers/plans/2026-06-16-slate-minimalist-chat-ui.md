@@ -399,6 +399,7 @@ Thay thế hoàn toàn callback `onChunk` trong `submitMessage` để cập nh�
         currentAssistantText = chunk.answer;
         setMessages((prev) =>
           prev.map((msg) =>
+
             msg.id === assistantMessageId
               ? {
                   ...msg,
@@ -406,6 +407,7 @@ Thay thế hoàn toàn callback `onChunk` trong `submitMessage` để cập nh�
                   response: chunk,
                   isStreaming: false, // Dừng stream để Accordion đóng lại
                 }
+
               : msg
           )
         );
@@ -426,7 +428,7 @@ Nếu lỗi, đảm bảo cập nhật trạng thái `isStreaming: false`:
             ? { ...msg, text: errorText, isStreaming: false }
             : msg
         )
-      );
+      )
       setMessages((finalPrev) => {
         persistChatSession(finalPrev, sessionId, nextLanguage);
         return finalPrev;

@@ -1,5 +1,6 @@
 from abc import ABC, abstractmethod
-from typing import List, Dict, Any, Tuple
+from datetime import date
+from typing import List, Dict, Any, Optional, Tuple
 from sqlmodel import Session, select
 from app.schemas.trend import SuggestedQuestions, ClimateType
 from app.models.catalog import ShippingZone
@@ -111,8 +112,8 @@ class TrendService(ITrendService):
         except Exception as e:
             logger.error(f"Lỗi truy vấn ShippingZone: {str(e)}")
 
-        # Nếu là các quốc gia cốt lõi (US, DE, VN), cho phép trả về True luôn để dễ test và không bị phụ thuộc chặt vào DB cache
-        if country_upper in ["US", "DE", "VN"]:
+        # Nếu là các quốc gia cốt lõi (US, DE, VN, AU, NZ), cho phép trả về True luôn để dễ test và không bị phụ thuộc chặt vào DB cache
+        if country_upper in ["US", "DE", "VN", "AU", "NZ"]:
             return country_upper, True
 
         # 2. Logic fallback nếu không tìm thấy trong DB
@@ -232,7 +233,33 @@ class TrendService(ITrendService):
                 f"Tìm sản phẩm có base cost rẻ nhất để bắt đầu bán tại {country}"
             ]
 
-    def get_seasonal_suggestions(self, session: Session, country: str, month: int) -> SuggestedQuestions:
+    def _is_empty_country(self, country: Optional[str]) -> bool:
+        return not country or country.strip().lower() in {"none", "null", "undefined"}
+
+    def _get_cold_start_suggestions(self) -> List[str]:
+        return [
+            "Tìm mẫu T-Shirt bán chạy giá vốn dưới $8 cho dịp Back to School tại US",
+            "Xưởng nào ship Hoodies sang Úc (AU) nhanh nhất trong mùa đông này?",
+            "Gợi ý các mẫu Ornaments chất liệu Glass bán chạy đón đầu mùa Giáng Sinh toàn cầu",
+        ]
+
+    def get_seasonal_suggestions(self, session: Session, country: Optional[str], month: Optional[int]) -> SuggestedQuestions:
+        resolved_month = month or date.today().month
+        if self._is_empty_country(country):
+            target_country = "US"
+            season = self.get_climate_season(resolved_month, target_country)
+            return SuggestedQuestions(
+                country=target_country,
+                original_country=None,
+                is_fallback=True,
+                month=resolved_month,
+                season=season,
+                weather_context="Chưa chọn market cụ thể, nên hệ thống gợi ý ma trận khám phá đa thị trường với US làm anchor mặc định.",
+                events=["Back to School Season", "Southern Winter", "Christmas"],
+                product_types=["T-Shirts", "Hoodies", "Ornaments & Gifts"],
+                suggestions=self._get_cold_start_suggestions()
+            )
+
         original_country = country.upper().strip()
 
         # 1. Áp dụng cơ chế Fallback quốc gia
@@ -240,17 +267,17 @@ class TrendService(ITrendService):
         is_fallback = not is_supported
 
         # 2. Lấy thông tin mùa, sự kiện, thời tiết
-        season = self.get_climate_season(month, target_country)
+        season = self.get_climate_season(resolved_month, target_country)
         weather_context = self._get_weather_context(season)
-        events = self.get_events_by_region(month, target_country)
+        events = self.get_events_by_region(resolved_month, target_country)
         product_types = self._get_product_types(season)
-        suggestions = self._get_suggestions(target_country, month, season, events)
+        suggestions = self._get_suggestions(target_country, resolved_month, season, events)
 
         return SuggestedQuestions(
             country=target_country,
             original_country=original_country,
             is_fallback=is_fallback,
-            month=month,
+            month=resolved_month,
             season=season,
             weather_context=weather_context,
             events=events,

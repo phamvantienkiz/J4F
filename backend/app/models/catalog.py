@@ -1,14 +1,25 @@
 from typing import Optional, List, Dict
+from sqlalchemy import Column
 from sqlmodel import SQLModel, Field, Relationship, JSON
+
+try:
+    from pgvector.sqlalchemy import Vector
+    EMBEDDING_TYPE = Vector(384)
+except ImportError:
+    EMBEDDING_TYPE = JSON
 
 class Product(SQLModel, table=True):
     __tablename__ = "products"
 
     id: str = Field(primary_key=True)
+    short_code: Optional[str] = Field(default=None, index=True)
     name: str = Field(index=True)
+    display_name: Optional[str] = None
     description: Optional[str] = None
     category: Optional[str] = Field(default=None, index=True)
     image_url: Optional[str] = None
+    metadata_json: Optional[Dict] = Field(default=None, sa_type=JSON)
+    embedding: Optional[List[float]] = Field(default=None, sa_column=Column(EMBEDDING_TYPE, nullable=True))
 
     variants: List["ProductVariant"] = Relationship(back_populates="product", sa_relationship_kwargs={"cascade": "all, delete-orphan"})
 
@@ -56,6 +67,7 @@ class ShippingFee(SQLModel, table=True):
     id: int = Field(default=None, primary_key=True)
     zone_id: int = Field(foreign_key="shipping_zones.id", index=True)
     carrier: str = Field(index=True)
+    partner_name: Optional[str] = Field(default=None, index=True)
     first_item_fee: float = Field(default=0.0)
     additional_item_fee: float = Field(default=0.0)
     delivery_time: Optional[str] = None # E.g., "3-5 business days"

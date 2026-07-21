@@ -4,10 +4,16 @@ Tests token expansion, intent routing, and chat endpoint integration.
 Uses live Supabase DB with transaction rollback for isolation.
 """
 import os
+from dotenv import load_dotenv
+
+# Load .env file BEFORE any os.getenv calls
+load_dotenv()
+
 import pytest
-from sqlmodel import Session, create_engine
+from sqlmodel import Session, SQLModel, create_engine
 from sqlalchemy.pool import StaticPool
 import app.database as db_module
+from app.models.catalog import Product, ProductVariant, ShippingFee, ShippingZone
 
 # Live DB fixture with transaction rollback
 @pytest.fixture(scope="session")
@@ -52,14 +58,49 @@ def session(test_engine):
 # UNIT TESTS: _expand_search_tokens (14 categories)
 # ============================================================================
 
-from app.agent.tools import _expand_search_tokens
+from types import SimpleNamespace
+
+from app.agent.tools import calculate_landed_cost_tool, _carrier_options_from_fees, _expand_search_tokens, _specific_product_matcher
+
+
+def test_carrier_options_dedupe_and_normalize_delivery_typo():
+    fees = [
+        SimpleNamespace(zone_id=1, partner_name=None, carrier="DHL", first_item_fee=10.99, additional_item_fee=0, delivery_time="15-20 business days"),
+        SimpleNamespace(zone_id=1, partner_name=None, carrier="DHL", first_item_fee=10.99, additional_item_fee=0, delivery_time="15-20 business days"),
+        SimpleNamespace(zone_id=1, partner_name=None, carrier="Asendia DPD", first_item_fee=12.99, additional_item_fee=0, delivery_time="15-20 bussiness days"),
+    ]
+
+    options = _carrier_options_from_fees(fees)
+
+    assert [option["carrier"] for option in options] == ["DHL", "Asendia DPD"]
+    assert options[1]["sla"] == "15-20 business days"
+    assert options[1]["delivery_time"] == "15-20 business days"
+
+
+def test_calculate_landed_cost_preserves_product_image_url(monkeypatch):
+    engine = create_engine(
+        "sqlite://",
+        connect_args={"check_same_thread": False},
+        poolclass=StaticPool,
+    )
+    SQLModel.metadata.create_all(engine)
+    monkeypatch.setattr(db_module, "engine", engine)
+
+    with Session(engine) as session:
+        session.add(Product(id="prod-hoodie", name="Warm Hoodie", category="Hoodies", image_url="https://example.test/hoodie.png"))
+        session.add(ProductVariant(id="var-hoodie", product_id="prod-hoodie", sku="TEST-HOODIE-S", color="Black", size="S", base_cost=10.0, second_item_price=2.0, mockup_url=None, partner_name="Zion", location_name="AU"))
+        session.add(ShippingZone(id=1, country_code="AU", country_name="Australia"))
+        session.add(ShippingFee(zone_id=1, carrier="DHL", partner_name="Zion", first_item_fee=5.0, additional_item_fee=2.0, delivery_time="3-5 business days"))
+        session.commit()
+
+    result = calculate_landed_cost_tool("TEST-HOODIE-S", "AU", selling_price=35.0)
+
+    assert result["image_url"] == "https://example.test/hoodie.png"
 
 def test_accessories_tokens():
-    """Test 1: Accessories category"""
+    """Test 1: Accessories leaf-node socks"""
     tokens = _expand_search_tokens("tất vớ")
-    assert "socks" in tokens or "tất" in tokens or "vớ" in tokens
-    # Should NOT contain t-shirt tokens
-    assert not any("t-shirt" in t.lower() or "tee" in t.lower() for t in tokens)
+    assert tokens == ["crew socks"]
 
 def test_tshirts_tokens():
     """Test 2: T-Shirts category"""
@@ -67,6 +108,21 @@ def test_tshirts_tokens():
     assert any("t-shirt" in t.lower() or "tshirt" in t.lower() for t in tokens)
     # Should NOT contain tank top tokens
     assert not any("tank" in t.lower() for t in tokens)
+
+
+def test_tshirt_tokens_match_hyphenated_keyword_inside_long_query():
+    tokens = _expand_search_tokens("Xưởng nào ship T-Shirt nội địa US nhanh nhất với giá cạnh tranh?")
+    assert "t-shirt" in tokens
+    assert "xưởng nào ship t-shirt nội địa us nhanh nhất với giá cạnh tranh?" not in tokens
+
+
+def test_tshirt_specific_matcher_rejects_q_tees_tote_bag():
+    matcher = _specific_product_matcher("Xưởng nào ship T-Shirt nội địa US nhanh nhất với giá cạnh tranh?", "T-Shirts")
+    tote = SimpleNamespace(id="USQTBT", name="Economical Tote Bag | Q Tees QTB (US)", category="Accessories")
+    tshirt = SimpleNamespace(id="USG8000", name="Unisex T-Shirt | Gildan 8000 (US)", category="T-Shirts")
+    assert matcher is not None
+    assert matcher(tshirt) is True
+    assert matcher(tote) is False
 
 def test_mugs_tokens():
     """Test 3: Mugs category"""
@@ -160,9 +216,15 @@ def test_polo_tokens():
 from app.agent.engine.intent import parse_intent_and_slots
 
 def test_accessories_routing():
-    """Test 1: Accessories intent routing"""
+    """Test 1: Accessories leaf-node socks routing"""
     intent, slots = parse_intent_and_slots("tìm tất vớ", {}, "general_chat")
-    assert slots.get("product_type") == "Accessories"
+    assert slots.get("product_type") == "Crew Socks"
+
+def test_headwear_subtype_routing_prefers_specific_leaf():
+    assert parse_intent_and_slots("Recommend dad hat ship to US", {}, "general_chat")[1].get("product_type") == "Dad Hat"
+    assert parse_intent_and_slots("Recommend trucker hat ship to US", {}, "general_chat")[1].get("product_type") == "Trucker Hat"
+    assert parse_intent_and_slots("Recommend bucket hat ship to US", {}, "general_chat")[1].get("product_type") == "Bucket Hat"
+
 
 def test_tshirts_routing():
     """Test 2: T-Shirts intent routing"""
@@ -258,7 +320,7 @@ def extract_items_from_response(response):
 
 def test_chat_accessories(client, session):
     """Test 1: Accessories - tìm tất vớ"""
-    response = client.post("/api/chat", json={
+    response = client.post("/agent/chat", json={
         "session_id": "test-accessories",
         "message": "tìm tất vớ"
     })
@@ -271,7 +333,7 @@ def test_chat_accessories(client, session):
 
 def test_chat_tshirts(client, session):
     """Test 2: T-Shirts - tìm áo thun"""
-    response = client.post("/api/chat", json={
+    response = client.post("/agent/chat", json={
         "session_id": "test-tshirts",
         "message": "tìm áo thun t-shirt"
     })
@@ -283,7 +345,7 @@ def test_chat_tshirts(client, session):
 
 def test_chat_mugs(client, session):
     """Test 3: Mugs - tìm mug"""
-    response = client.post("/api/chat", json={
+    response = client.post("/agent/chat", json={
         "session_id": "test-mugs",
         "message": "tìm ceramic mug"
     })
@@ -295,7 +357,7 @@ def test_chat_mugs(client, session):
 
 def test_chat_tank_tops(client, session):
     """Test 4: Tank Tops - tìm áo ba lỗ"""
-    response = client.post("/api/chat", json={
+    response = client.post("/agent/chat", json={
         "session_id": "test-tank-tops",
         "message": "tìm áo ba lỗ tank top"
     })
@@ -307,7 +369,7 @@ def test_chat_tank_tops(client, session):
 
 def test_chat_hoodies(client, session):
     """Test 5: Hoodies - tìm hoodie"""
-    response = client.post("/api/chat", json={
+    response = client.post("/agent/chat", json={
         "session_id": "test-hoodies",
         "message": "tìm hoodie có mũ"
     })
@@ -320,7 +382,7 @@ def test_chat_hoodies(client, session):
 
 def test_chat_sweatshirts(client, session):
     """Test 6: Sweatshirts - tìm áo nỉ"""
-    response = client.post("/api/chat", json={
+    response = client.post("/agent/chat", json={
         "session_id": "test-sweatshirts",
         "message": "tìm áo nỉ sweatshirt"
     })
@@ -332,7 +394,7 @@ def test_chat_sweatshirts(client, session):
 
 def test_chat_ornaments(client, session):
     """Test 7: Ornaments & Gifts - tìm ornament"""
-    response = client.post("/api/chat", json={
+    response = client.post("/agent/chat", json={
         "session_id": "test-ornaments",
         "message": "tìm acrylic ornament trang trí"
     })
@@ -344,7 +406,7 @@ def test_chat_ornaments(client, session):
 
 def test_chat_home_decor(client, session):
     """Test 8: Home Decor & Flags - tìm flag"""
-    response = client.post("/api/chat", json={
+    response = client.post("/agent/chat", json={
         "session_id": "test-home-decor",
         "message": "tìm garden flag"
     })
@@ -356,7 +418,7 @@ def test_chat_home_decor(client, session):
 
 def test_chat_sportswear(client, session):
     """Test 9: Sportswear - tìm đồ thể thao"""
-    response = client.post("/api/chat", json={
+    response = client.post("/agent/chat", json={
         "session_id": "test-sportswear",
         "message": "tìm đồ thể thao soccer jersey"
     })
@@ -369,7 +431,7 @@ def test_chat_sportswear(client, session):
 
 def test_chat_blankets(client, session):
     """Test 10: Blankets - tìm chăn"""
-    response = client.post("/api/chat", json={
+    response = client.post("/agent/chat", json={
         "session_id": "test-blankets",
         "message": "tìm chăn fleece blanket"
     })
@@ -381,7 +443,7 @@ def test_chat_blankets(client, session):
 
 def test_chat_bottoms(client, session):
     """Test 11: Bottoms & Shorts - tìm quần short"""
-    response = client.post("/api/chat", json={
+    response = client.post("/agent/chat", json={
         "session_id": "test-bottoms",
         "message": "tìm quần short"
     })
@@ -393,7 +455,7 @@ def test_chat_bottoms(client, session):
 
 def test_chat_baby_kids(client, session):
     """Test 12: Baby & Kids - tìm đồ em bé"""
-    response = client.post("/api/chat", json={
+    response = client.post("/agent/chat", json={
         "session_id": "test-baby-kids",
         "message": "tìm đồ em bé onesie"
     })
@@ -405,7 +467,7 @@ def test_chat_baby_kids(client, session):
 
 def test_chat_pajamas(client, session):
     """Test 13: Pajamas & Sleepwear - tìm pajama"""
-    response = client.post("/api/chat", json={
+    response = client.post("/agent/chat", json={
         "session_id": "test-pajamas",
         "message": "tìm pajama đồ ngủ"
     })
@@ -417,7 +479,7 @@ def test_chat_pajamas(client, session):
 
 def test_chat_polo(client, session):
     """Test 14: Polo Shirts - tìm áo polo"""
-    response = client.post("/api/chat", json={
+    response = client.post("/agent/chat", json={
         "session_id": "test-polo",
         "message": "tìm áo polo nam"
     })

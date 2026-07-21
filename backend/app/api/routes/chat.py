@@ -31,6 +31,8 @@ async def chat_endpoint(request: ChatRequest):
                 message=request.message,
                 history=request.history
             ):
+                if isinstance(event, dict) and "token" in event:
+                    event = {"text": event["token"]}
                 yield f"data: {json.dumps(event, ensure_ascii=False)}\n\n"
 
         headers = {

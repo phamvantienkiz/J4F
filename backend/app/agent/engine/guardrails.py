@@ -26,6 +26,10 @@ RULE_1_KEYWORDS = [
 # Rule 3: Anti-Jailbreak / Sensitive Data Patterns
 RULE_3_KEYWORDS = [
     r"api[-_\s]?key",
+    r"khóa[-_\s]?api",
+    r"khoa[-_\s]?api",
+    r"secret[-_\s]?key",
+    r"\.env",
     r"credential",
     r"password",
     r"mật[-_\s]?khẩu",

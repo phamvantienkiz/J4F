@@ -13,7 +13,6 @@ frontend/dist/
 *.tsbuildinfo
 node_modules/
 dist/
-.env.example
 .txt
 CLAUDE.md
 Dockerfile
@@ -31,3 +30,33 @@ test_core.py
 text_to_api.py
 timMa.json
 webhook.txt
+image_*.png
+advanced_chat_matrix.py
+docs/
+tests/
+test_*.py
+verify_*.py
+test_*.log
+temp_*.js
+skills-lock.json
+run_*e2e_*.log
+.mcp.json
+\audit_and_test.py
+sync_all_shipping_api.py
+sync_complete_catalog_v2.py
+run_db_export.py
+.superpowers\
+audit_topology.py
+
+# Database files — data thật không nên đưa lên git
+*.db
+*.sqlite
+*.sqlite3
+
+# Log files
+*.log
+
+backend/tests
+.agents/
+backend/scripts/
+

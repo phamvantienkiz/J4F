@@ -1,5 +1,6 @@
 from app.models.catalog import Product, ProductVariant, ShippingZone, ShippingFee
 from app.models.session import ChatSession
+from app.models.order import Order
 
 __all__ = [
     "Product",
@@ -7,4 +8,5 @@ __all__ = [
     "ShippingZone",
     "ShippingFee",
     "ChatSession",
+    "Order",
 ]
